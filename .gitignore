@@ -31,3 +31,10 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### OAuth2 RSA Keys ###
+keys/
+src/main/resources/certificates/
+*.pem
+private_key.*
+public_key.*
