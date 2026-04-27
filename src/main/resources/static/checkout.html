@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShopSmart Market | Checkout</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/storefront.css">
+</head>
+<body data-page="checkout">
+<div class="page-shell">
+    <header class="site-header">
+        <div class="header-main">
+            <a class="brand-chip" href="/index.html">
+                <span class="brand-burst">*</span>
+                <span class="brand-copy"><strong>ShopSmart Market</strong><span>Checkout</span></span>
+            </a>
+            <div class="location-chip"><span class="eyebrow">Delivery</span><strong>Address and payment</strong><span>Review your order</span></div>
+            <form class="search-shell" id="global-search-form">
+                <label class="sr-only" for="global-search">Search catalog</label>
+                <input id="global-search" type="search" placeholder="Search before checkout">
+                <button class="primary-button" type="submit">Search</button>
+            </form>
+            <div class="header-actions">
+                <a class="account-action" data-auth-link="true" href="/signin.html">Sign in</a>
+                <a class="account-action" data-wishlist-link="true" href="/wishlist.html">Lists</a>
+                <a class="account-action cart-action" href="/cart.html">
+                    <span class="cart-icon">🛒</span>
+                    <span class="cart-copy">
+                        <strong>Cart</strong>
+                        <span id="header-cart-pill">0 items</span>
+                    </span>
+                </a>
+            </div>
+        </div>
+    </header>
+    <main class="page-main">
+        <section class="layout-two checkout-layout">
+            <article class="checkout-main stack">
+                <section class="checkout-panel panel">
+                    <div class="section-head">
+                        <div>
+                            <p class="eyebrow">Review items</p>
+                            <h2>Your items</h2>
+                        </div>
+                    </div>
+                    <div class="checkout-review-list" id="checkout-review-items">
+                        <div class="message-box">Select items in your cart to review them here.</div>
+                    </div>
+                </section>
+                <section class="checkout-panel panel">
+                    <div class="section-head">
+                        <div>
+                            <p class="eyebrow">Shipping</p>
+                            <h2>Delivery address</h2>
+                        </div>
+                        <a class="secondary-button" href="/account.html">Manage in account</a>
+                    </div>
+                    <label class="field">
+                        <span>Select an address</span>
+                        <select id="checkout-shipping-address">
+                            <option value="">Choose address</option>
+                        </select>
+                    </label>
+                    <div class="stack" id="checkout-shipping-form">
+                        <label class="field"><span>Recipient</span><input id="ship-recipient" type="text"></label>
+                        <label class="field"><span>Address line 1</span><input id="ship-line1" type="text"></label>
+                        <label class="field"><span>Address line 2</span><input id="ship-line2" type="text"></label>
+                        <div class="field-row">
+                            <label class="field"><span>City</span><input id="ship-city" type="text"></label>
+                            <label class="field"><span>State</span><input id="ship-state" type="text"></label>
+                        </div>
+                        <div class="field-row">
+                            <label class="field"><span>Postal code</span><input id="ship-postal" type="text"></label>
+                            <label class="field"><span>Country</span><input id="ship-country" type="text" value="US"></label>
+                        </div>
+                        <label class="field"><span>Phone number</span><input id="ship-phone" type="text"></label>
+                    </div>
+                </section>
+                <section class="checkout-panel panel">
+                    <div class="section-head">
+                        <div>
+                            <p class="eyebrow">Payment</p>
+                            <h2>Billing and payment method</h2>
+                        </div>
+                    </div>
+                    <div class="stack">
+                        <div class="field-row">
+                            <label class="field">
+                                <span>Payment method</span>
+                                <select id="checkout-payment-method">
+                                    <option value="">Choose a payment method</option>
+                                </select>
+                            </label>
+                            <label class="field checkout-link-field">
+                                <span>&nbsp;</span>
+                                <a class="secondary-button" id="checkout-add-payment-link" href="/account.html">Add payment</a>
+                            </label>
+                        </div>
+                        <label class="field checkbox-field checkout-same-address">
+                            <input id="checkout-billing-same" type="checkbox" checked>
+                            <span>Billing address is the same as shipping</span>
+                        </label>
+                        <label class="field">
+                            <span>Select billing address</span>
+                            <select id="checkout-billing-address">
+                                <option value="">Choose address</option>
+                            </select>
+                        </label>
+                        <div class="stack" id="checkout-billing-fields" hidden>
+                            <label class="field"><span>Billing recipient</span><input id="bill-recipient" type="text"></label>
+                            <label class="field"><span>Billing line 1</span><input id="bill-line1" type="text"></label>
+                            <label class="field"><span>Billing line 2</span><input id="bill-line2" type="text"></label>
+                            <div class="field-row">
+                                <label class="field"><span>City</span><input id="bill-city" type="text"></label>
+                                <label class="field"><span>State</span><input id="bill-state" type="text"></label>
+                            </div>
+                            <div class="field-row">
+                                <label class="field"><span>Postal code</span><input id="bill-postal" type="text"></label>
+                                <label class="field"><span>Country</span><input id="bill-country" type="text" value="US"></label>
+                            </div>
+                            <label class="field"><span>Phone number</span><input id="bill-phone" type="text"></label>
+                        </div>
+                        <div class="message-box" id="checkout-page-message" hidden>Choose your address and payment method, then place your order.</div>
+                    </div>
+                </section>
+            </article>
+            <aside class="checkout-panel panel sticky-column checkout-summary-panel">
+                <div class="section-head">
+                    <div>
+                        <p class="eyebrow">Order summary</p>
+                        <h2>Final total</h2>
+                    </div>
+                </div>
+                <div class="summary-list checkout-summary-list">
+                    <div class="summary-line"><span>Items</span><strong id="checkout-order-items">0</strong></div>
+                    <div class="summary-line"><span>Subtotal</span><strong id="checkout-order-subtotal">$0.00</strong></div>
+                    <div class="summary-line"><span>Shipping</span><strong id="checkout-order-shipping">$0.00</strong></div>
+                    <div class="summary-line"><span>Tax</span><strong id="checkout-order-tax">$0.00</strong></div>
+                    <div class="summary-line"><span>Discount</span><strong id="checkout-order-discount">$0.00</strong></div>
+                    <div class="summary-line"><span>Payment</span><strong id="checkout-payment-status">Choose a method</strong></div>
+                    <div class="summary-line total"><span>Total</span><strong id="checkout-order-total">$0.00</strong></div>
+                </div>
+                <div class="stack" style="margin-top:14px;">
+                    <button class="primary-button" type="button" id="checkout-pay-now">Place order</button>
+                    <a class="secondary-button" href="/cart.html">Back to cart</a>
+                </div>
+            </aside>
+        </section>
+    </main>
+</div>
+<script src="/storefront.js"></script>
+</body>
+</html>

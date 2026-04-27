@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShopSmart | Lists</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/storefront.css">
+</head>
+<body data-page="wishlist">
+<div class="page-shell">
+    <header class="site-header">
+        <div class="header-main">
+            <a class="brand-chip" href="/index.html">
+                <span class="brand-burst">*</span>
+                <span class="brand-copy"><strong>ShopSmart</strong><span>Lists</span></span>
+            </a>
+            <div class="location-chip"><span class="eyebrow">Saved items</span><strong>Your favorites in one place</strong><span>Review and shop later</span></div>
+            <form class="search-shell" id="global-search-form">
+                <label class="sr-only" for="global-search">Search catalog</label>
+                <input id="global-search" type="search" placeholder="Search products">
+                <button class="primary-button" type="submit">Search</button>
+            </form>
+            <div class="header-actions">
+                <a class="account-action" data-auth-link="true" href="/signin.html">Sign in</a>
+                <a class="account-action" data-wishlist-link="true" href="/wishlist.html">Lists</a>
+                <a class="account-action cart-action" href="/cart.html">
+                    <span class="cart-icon">🛒</span>
+                    <span class="cart-copy">
+                        <strong>Cart</strong>
+                        <span id="header-cart-pill">0 items</span>
+                    </span>
+                </a>
+            </div>
+        </div>
+    </header>
+    <main class="page-main">
+        <section class="section-panel panel">
+            <div class="section-head">
+                <div>
+                    <p class="eyebrow">Lists</p>
+                    <h2>Saved items</h2>
+                </div>
+                <div class="muted" id="wishlist-meta">Loading</div>
+            </div>
+            <div class="message-box" id="wishlist-message">Loading your saved items.</div>
+            <div class="tile-grid" id="wishlist-grid" hidden></div>
+        </section>
+    </main>
+</div>
+<script src="/storefront.js"></script>
+</body>
+</html>

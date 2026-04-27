@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShopSmart Market | Home</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/storefront.css">
+</head>
+<body data-page="home">
+<div class="page-shell">
+    <header class="site-header">
+        <div class="header-main">
+            <a class="brand-chip" href="/index.html">
+                <span class="brand-burst">*</span>
+                <span class="brand-copy">
+                    <strong>ShopSmart</strong>
+                    <span>Save money. Live better.</span>
+                </span>
+            </a>
+            <div class="location-chip">
+                <span class="eyebrow">Pickup or delivery</span>
+                <strong>Chicago, IL 60601</strong>
+                <span>Store hours 6AM-11PM</span>
+            </div>
+            <form class="search-shell" id="global-search-form">
+                <label class="sr-only" for="global-search">Search catalog</label>
+                <input id="global-search" type="search" placeholder="Search everything at ShopSmart">
+                <button class="primary-button" type="submit">Search</button>
+            </form>
+            <div class="header-actions">
+                <a class="account-action" data-auth-link="true" href="/signin.html">Sign in</a>
+                <a class="account-action" data-wishlist-link="true" href="/wishlist.html">Lists</a>
+                <a class="account-action cart-action" href="/cart.html">
+                    <span class="cart-icon">🛒</span>
+                    <span class="cart-copy">
+                        <strong>Cart</strong>
+                        <span id="header-cart-pill">0 items</span>
+                    </span>
+                </a>
+            </div>
+        </div>
+        <nav class="category-jump-bar" id="home-category-nav">
+            <a class="category-jump-link" href="#home-featured-shelf">Featured</a>
+        </nav>
+    </header>
+
+    <main class="page-main">
+        <section class="hero-ribbon panel" id="home-hero">
+            <div class="hero-copy-block">
+                <p class="eyebrow">Spring savings</p>
+                <h1>Deals on everyday essentials, tech, and home favorites</h1>
+                <p>Shop thousands of items for pickup, delivery, or shipping.</p>
+                <div class="hero-actions">
+                    <a class="primary-button" href="#home-featured-shelf">Shop now</a>
+                </div>
+            </div>
+            <div class="hero-visual" aria-hidden="true">
+                <div class="hero-visual-card">
+                    <img src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80" alt="Spring savings display with home goods and shopping bags">
+                </div>
+            </div>
+        </section>
+
+        <section class="section-panel panel" id="home-featured-shelf" style="margin-top:18px;">
+            <div class="section-head">
+                <div>
+                    <p class="eyebrow">Featured</p>
+                    <h2>Trending now</h2>
+                    <p class="helper">Shop top items across grocery, electronics, home, and more.</p>
+                </div>
+                <div class="muted" id="home-catalog-meta">Loading items</div>
+            </div>
+            <div class="message-box" id="home-catalog-state">Loading products...</div>
+            <div class="tile-grid" id="home-product-grid" hidden></div>
+        </section>
+
+        <section class="section-panel panel" id="home-deals-shelf" style="margin-top:18px;">
+                <div class="section-head">
+                    <div>
+                        <p class="eyebrow">Deals</p>
+                        <h2>Featured savings</h2>
+                        <p class="helper">A quick look at current price drops.</p>
+                </div>
+                <div class="muted" id="home-deals-meta">Loading deals</div>
+            </div>
+            <div class="message-box" id="home-deals-state">Loading deals...</div>
+            <div class="tile-grid" id="home-deals-grid" hidden></div>
+        </section>
+
+        <section class="section-panel panel" id="home-category-section-anchor" style="margin-top:18px;">
+            <div class="section-head">
+                <div>
+                    <p class="eyebrow">Departments</p>
+                    <h2>Shop popular categories</h2>
+                </div>
+                <div class="muted" id="home-category-meta">Popular departments</div>
+            </div>
+            <div class="category-sections" id="home-category-sections">
+                <div class="message-box">Loading category sections from the catalog.</div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="page-footer">
+        <div class="page-footer-inner">
+            <span>ShopSmart</span>
+            <nav class="footer-links" aria-label="Footer links">
+                <a href="#home-category-section-anchor">All departments</a>
+                <a href="/account.html">Help</a>
+                <a href="mailto:support@shopsmart.local">Contact us</a>
+            </nav>
+        </div>
+    </footer>
+</div>
+<script src="/storefront.js"></script>
+</body>
+</html>

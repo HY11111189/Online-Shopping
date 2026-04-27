@@ -1,0 +1,74 @@
+version: "3.4"
+
+services:
+  mysql:
+    image: mysql:5.7
+    container_name: shopping-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: myJava!1
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: online_shopping
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pmyJava!1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  mongo:
+    image: mongo:4.4
+    container_name: shopping-mongo
+    restart: unless-stopped
+    command: ["mongod", "--bind_ip_all"]
+    security_opt:
+      - seccomp:unconfined
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  cassandra:
+    image: cassandra:3.11.2
+    container_name: shopping-cassandra
+    restart: unless-stopped
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64/jre
+      CASSANDRA_CLUSTER_NAME: shopping-cluster
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+
+  cassandra-init:
+    image: cassandra:3.11.2
+    container_name: shopping-cassandra-init
+    depends_on:
+      - cassandra
+    restart: "no"
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-8-openjdk-amd64/jre
+    volumes:
+      - ./docker/cassandra-init.cql:/docker-entrypoint-initdb.d/cassandra-init.cql:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        for i in `seq 1 30`; do
+          cqlsh cassandra 9042 -e "DESCRIBE KEYSPACES" >/dev/null 2>&1 && break
+          echo "Waiting for Cassandra..."
+          sleep 10
+        done
+        cqlsh cassandra 9042 -f /docker-entrypoint-initdb.d/cassandra-init.cql
+
+volumes:
+  mysql_data:
+  mongo_data:
+  cassandra_data:

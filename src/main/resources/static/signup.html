@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShopSmart | Create account</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/storefront.css">
+</head>
+<body data-page="signup">
+<div class="page-shell">
+    <header class="site-header">
+        <div class="header-main">
+            <a class="brand-chip" href="/index.html">
+                <span class="brand-burst">*</span>
+                <span class="brand-copy"><strong>ShopSmart</strong><span>Create account</span></span>
+            </a>
+            <div class="location-chip auth-chip"><span class="eyebrow">Welcome</span><strong>Save faster. Shop easier.</strong><span>Create your account.</span></div>
+            <form class="search-shell" id="global-search-form">
+                <label class="sr-only" for="global-search">Search catalog</label>
+                <input id="global-search" type="search" placeholder="Search products">
+                <button class="primary-button" type="submit">Search</button>
+            </form>
+            <div class="header-actions">
+                <a class="account-action" data-auth-link="true" href="/signin.html">Sign in</a>
+                <a class="account-action" data-wishlist-link="true" href="/wishlist.html">Lists</a>
+                <a class="account-action cart-action" href="/cart.html">
+                    <span class="cart-icon">🛒</span>
+                    <span class="cart-copy">
+                        <strong>Cart</strong>
+                        <span id="header-cart-pill">0 items</span>
+                    </span>
+                </a>
+            </div>
+        </div>
+    </header>
+    <main class="page-main">
+        <section class="signup-layout">
+            <article class="account-panel panel signup-card">
+                <div class="section-head auth-card-head">
+                    <div>
+                        <p class="eyebrow">Create account</p>
+                        <h2>Set up your account</h2>
+                        <p class="auth-card-copy">Create an account to start shopping, save your address, and track orders.</p>
+                    </div>
+                </div>
+                <form class="stack" id="signup-form">
+                    <div class="field-row">
+                        <label class="field"><span>Full name</span><input id="signup-name" type="text"></label>
+                        <label class="field"><span>Username</span><input id="signup-account" type="text"></label>
+                    </div>
+                    <div class="field-row">
+                        <label class="field"><span>Email</span><input id="signup-email" type="email"></label>
+                        <label class="field"><span>Phone number</span><input id="signup-phone" type="tel"></label>
+                    </div>
+                    <label class="field"><span>Password</span><input id="signup-password" type="password"></label>
+                    <label class="field"><span>Address line 1</span><input id="signup-line1" type="text"></label>
+                    <label class="field"><span>Address line 2</span><input id="signup-line2" type="text"></label>
+                    <div class="field-row">
+                        <label class="field"><span>City</span><input id="signup-city" type="text"></label>
+                        <label class="field"><span>State</span><input id="signup-state" type="text"></label>
+                    </div>
+                    <div class="field-row">
+                        <label class="field"><span>Postal code</span><input id="signup-postal" type="text"></label>
+                        <label class="field"><span>Country</span><input id="signup-country" type="text" value="US"></label>
+                    </div>
+                    <div class="stack-actions">
+                        <button class="primary-button" type="submit">Create account</button>
+                        <a class="secondary-button" href="/signin.html">Sign in</a>
+                    </div>
+                </form>
+                <div class="message-box auth-message" id="signup-message" hidden></div>
+            </article>
+        </section>
+    </main>
+</div>
+<script src="/storefront.js"></script>
+</body>
+</html>
