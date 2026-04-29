@@ -68,8 +68,8 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderDto updateOrder(String orderNumber, OrderUpdateRequestDto requestDto) {
         ShoppingOrder order = getOrderEntity(orderNumber);
-        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.COMPLETED) {
-            throw new IllegalStateException("Cancelled or completed orders cannot be updated");
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            throw new IllegalStateException("Cancelled orders cannot be updated");
         }
         order.setCurrencyCode(requestDto.getCurrencyCode());
         order.setTaxAmount(defaultMoney(requestDto.getTaxAmount()));

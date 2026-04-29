@@ -86,9 +86,9 @@ class OrderServiceImplTest {
     }
 
     @Test
-    void updateOrderShouldRejectCompletedOrder() {
+    void updateOrderShouldRejectCancelledOrder() {
         ShoppingOrder existing = new ShoppingOrder();
-        existing.setStatus(OrderStatus.COMPLETED);
+        existing.setStatus(OrderStatus.CANCELLED);
         existing.setVersion(1);
         existing.setKey(orderKey());
 

@@ -121,8 +121,8 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     private void validatePaymentRequest(PaymentRequestDto requestDto, OrderDto order) {
-        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.COMPLETED) {
-            throw new IllegalStateException("Payment cannot be submitted for cancelled or completed orders");
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            throw new IllegalStateException("Payment cannot be submitted for cancelled orders");
         }
         if (!order.getCustomerId().equals(requestDto.getCustomerId())) {
             throw new IllegalArgumentException("Customer does not match order");

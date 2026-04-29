@@ -203,12 +203,15 @@ function formatDate(value) {
 function displayOrderStatus(value) {
     switch (value) {
         case "CREATED":
-        case "CONFIRMED":
             return "Placed";
+        case "PAID":
+            return "Paid";
+        case "FAILED":
+            return "Failed";
         case "CANCELLED":
             return "Canceled";
-        case "COMPLETED":
-            return "Delivered";
+        case "REFUNDED":
+            return "Refunded";
         default:
             return value || "-";
     }
@@ -422,6 +425,15 @@ function addressText(address) {
         [address.city, address.state, address.postalCode].filter(Boolean).join(", "),
         address.country
     ].filter(Boolean).join(", ");
+}
+
+function formatSnapshotSummary(address) {
+    if (!address) return "No address stored.";
+    const locality = [address.city, address.state, address.postalCode].filter(Boolean).join(", ");
+    return [
+        address.recipientName || "Saved on order",
+        locality || address.country || "Location unavailable"
+    ].filter(Boolean).join(" • ");
 }
 
 async function getCatalogItems() {
@@ -1088,6 +1100,10 @@ async function initProduct() {
                 cartUnits.textContent = `${cartUnitCount(state.cart)} item${cartUnitCount(state.cart) === 1 ? "" : "s"}`;
                 message.textContent = `${item.itemName || item.sku} added to cart.`;
                 updateHomeCartPill();
+                addButton.textContent = "Added";
+                window.setTimeout(() => {
+                    addButton.textContent = "Add to cart";
+                }, 1200);
             } catch (error) {
                 if (String(error.message).includes("401")) {
                     clearSession();
@@ -1702,7 +1718,14 @@ async function initAccount() {
                             <span>${escapeHtml(formatMoney(order.totalAmount || 0, order.currencyCode || "USD"))}</span>
                         </button>
                         <div class="order-history-body" hidden>
-                            <div class="muted" style="margin-bottom:10px;">${escapeHtml(displayOrderStatus(order.status))}</div>
+                            <div class="stack-tight" style="margin-bottom:10px;">
+                                <div class="muted">${escapeHtml(displayOrderStatus(order.status))}</div>
+                                <div><strong>Delivery details</strong></div>
+                                <div class="muted">${escapeHtml(formatSnapshotSummary(order.shippingAddress))}</div>
+                                <div><strong>Billing details</strong></div>
+                                <div class="muted">${escapeHtml(formatSnapshotSummary(order.billingAddress))}</div>
+                                ${order.paymentReference ? `<div><strong>Payment reference</strong></div><div class="muted">${escapeHtml(order.paymentReference)}</div>` : ""}
+                            </div>
                             ${itemsMarkup || `<div class="muted">No items.</div>`}
                         </div>
                     `;

@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="GatewayServiceApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="gateway-service" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.chuwa.shopping.gatewayservice.GatewayServiceApplication" />
+    <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$/springboot-shopping/services/gateway-service" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

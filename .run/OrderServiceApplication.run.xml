@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="OrderServiceApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="order-service" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.chuwa.shopping.orderservice.OrderServiceApplication" />
+    <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$/springboot-shopping/services/order-service" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

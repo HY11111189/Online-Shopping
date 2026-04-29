@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="PaymentServiceApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="payment-service" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.chuwa.shopping.paymentservice.PaymentServiceApplication" />
+    <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$/springboot-shopping/services/payment-service" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

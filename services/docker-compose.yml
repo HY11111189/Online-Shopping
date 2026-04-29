@@ -1,0 +1,185 @@
+version: "2.4"
+
+services:
+  mysql:
+    image: mysql:5.7
+    container_name: shopping-mysql
+    environment:
+      MYSQL_DATABASE: online_shopping
+      MYSQL_ROOT_PASSWORD: myJava!1
+      MYSQL_ROOT_HOST: "%"
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pmyJava!1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mongo:
+    image: mongo:4.4
+    container_name: shopping-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  cassandra:
+    image: cassandra:3.11.2
+    container_name: shopping-cassandra
+    environment:
+      CASSANDRA_CLUSTER_NAME: shopping-cluster
+      CASSANDRA_DC: datacenter1
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+
+  cassandra-init:
+    image: cassandra:3.11.2
+    container_name: shopping-cassandra-init
+    depends_on:
+      - cassandra
+    command: >
+      /bin/sh -c "
+      for i in `seq 1 30`; do
+        cqlsh cassandra 9042 -e \"
+        CREATE KEYSPACE IF NOT EXISTS online_shopping_order
+        WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};\" && exit 0;
+        sleep 5;
+      done;
+      exit 1"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: shopping-kafka
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+
+  item-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: item-service
+    container_name: shopping-item-service
+    depends_on:
+      - mongo
+    environment:
+      SHOPPING_MONGO_URI: mongodb://mongo:27017/online_shopping_item
+      SHOPPING_AUTH_JWK_SET_URI: http://account-service:8081/oauth2/jwks
+    ports:
+      - "8082:8082"
+
+  order-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: order-service
+    container_name: shopping-order-service
+    depends_on:
+      - cassandra
+      - cassandra-init
+      - item-service
+      - kafka
+    environment:
+      SHOPPING_CASSANDRA_CONTACT_POINTS: cassandra
+      SHOPPING_CASSANDRA_PORT: 9042
+      SHOPPING_CASSANDRA_KEYSPACE: online_shopping_order
+      SHOPPING_CASSANDRA_DATACENTER: datacenter1
+      SHOPPING_ITEM_SERVICE_BASE_URL: http://item-service:8082
+      SHOPPING_AUTH_JWK_SET_URI: http://account-service:8081/oauth2/jwks
+      SHOPPING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SHOPPING_KAFKA_ORDER_PLACED_TOPIC: shopping.order.placed.v1
+    ports:
+      - "8083:8083"
+
+  account-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: account-service
+    container_name: shopping-account-service
+    depends_on:
+      - mysql
+      - item-service
+      - order-service
+    environment:
+      SHOPPING_SQL_URL: jdbc:mysql://mysql:3306/online_shopping?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=America/Chicago
+      SHOPPING_SQL_USERNAME: root
+      SHOPPING_SQL_PASSWORD: myJava!1
+      SHOPPING_ITEM_SERVICE_BASE_URL: http://item-service:8082
+      SHOPPING_ORDER_SERVICE_BASE_URL: http://order-service:8083
+      SPRING_SECURITY_OAUTH2_AUTHORIZATIONSERVER_ISSUER: http://account-service:8081
+      APP_OAUTH2_KEY_STORE_PATH: /app/certificates
+    ports:
+      - "8081:8081"
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: payment-service
+    container_name: shopping-payment-service
+    depends_on:
+      - mysql
+      - order-service
+      - kafka
+    environment:
+      SHOPPING_SQL_URL: jdbc:mysql://mysql:3306/online_shopping?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=America/Chicago
+      SHOPPING_SQL_USERNAME: root
+      SHOPPING_SQL_PASSWORD: myJava!1
+      SHOPPING_ORDER_SERVICE_BASE_URL: http://order-service:8083
+      SHOPPING_AUTH_JWK_SET_URI: http://account-service:8081/oauth2/jwks
+      SHOPPING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SHOPPING_KAFKA_ORDER_PLACED_TOPIC: shopping.order.placed.v1
+    ports:
+      - "8084:8084"
+
+  gateway-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: gateway-service
+    container_name: shopping-gateway-service
+    depends_on:
+      - account-service
+      - item-service
+      - order-service
+      - payment-service
+    environment:
+      SHOPPING_ACCOUNT_SERVICE_BASE_URL: http://account-service:8081
+      SHOPPING_ITEM_SERVICE_BASE_URL: http://item-service:8082
+      SHOPPING_ORDER_SERVICE_BASE_URL: http://order-service:8083
+      SHOPPING_PAYMENT_SERVICE_BASE_URL: http://payment-service:8084
+    ports:
+      - "8080:8080"
+
+volumes:
+  mysql_data:
+  mongo_data:
+  cassandra_data:
+  kafka_data:

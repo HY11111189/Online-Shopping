@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShopSmart Market | Order unavailable</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/storefront.css?v=20260428c">
+</head>
+<body data-page="order-failed">
+<div class="page-shell">
+    <header class="site-header">
+        <div class="header-main">
+            <a class="brand-chip" href="/index.html">
+                <span class="brand-burst">*</span>
+                <span class="brand-copy"><strong>ShopSmart Market</strong><span>Order update</span></span>
+            </a>
+            <div class="location-chip"><span class="eyebrow">Order status</span><strong>We could not complete your order</strong><span>Review what happened</span></div>
+            <form class="search-shell" id="global-search-form">
+                <label class="sr-only" for="global-search">Search catalog</label>
+                <input id="global-search" type="search" placeholder="Search for another item">
+                <button class="primary-button" type="submit">Search</button>
+            </form>
+            <div class="header-actions">
+                <a class="account-action" data-auth-link="true" href="/signin.html">Sign in</a>
+                <a class="account-action" data-wishlist-link="true" href="/wishlist.html">Lists</a>
+                <a class="account-action cart-action" href="/cart.html">
+                    <span class="cart-icon">🛒</span>
+                    <span class="cart-copy">
+                        <strong>Cart</strong>
+                        <span id="header-cart-pill">0 items</span>
+                    </span>
+                </a>
+            </div>
+        </div>
+    </header>
+    <main class="page-main">
+        <section class="confirmation-panel panel">
+            <div class="section-head">
+                <div>
+                    <p class="eyebrow">Order unavailable</p>
+                    <h2>We could not complete this order</h2>
+                </div>
+            </div>
+            <div class="status-grid">
+                <article class="status-card"><span class="eyebrow">Order number</span><strong id="failed-order-number">-</strong></article>
+                <article class="status-card"><span class="eyebrow">Order</span><strong id="failed-order-status">-</strong></article>
+                <article class="status-card"><span class="eyebrow">Payment</span><strong id="failed-payment-status">-</strong></article>
+                <article class="status-card"><span class="eyebrow">Total</span><strong id="failed-total">$0.00</strong></article>
+            </div>
+            <div class="message-box" id="failed-message" style="margin-top:18px;">Order failure details appear here.</div>
+            <div class="timeline" id="failed-timeline" style="margin-top:18px;"></div>
+            <div class="order-detail-grid" id="failed-fulfillment-grid" style="margin-top:18px;"></div>
+            <div class="stack" id="failed-item-groups" style="margin-top:18px;"></div>
+            <div class="inline-actions" style="margin-top:18px;">
+                <a class="primary-button" href="/cart.html">Return to cart</a>
+                <a class="secondary-button" href="/index.html">Keep shopping</a>
+            </div>
+        </section>
+    </main>
+</div>
+<script src="/storefront.js?v=20260428c"></script>
+</body>
+</html>
