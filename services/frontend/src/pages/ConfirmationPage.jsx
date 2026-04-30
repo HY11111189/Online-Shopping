@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import { useSession } from '../app/SessionProvider'
 import { api } from '../lib/api'
-import { dateLabel, fulfillmentOf, fullAddress, money } from '../lib/format'
+import { dateLabel, fulfillmentOf, fullAddress, money, originalPriceFromDiscount } from '../lib/format'
 import { canCancel } from '../lib/orderRules'
 import { useProductLookupBySku } from '../lib/useProductLookup'
 import { signinUrl } from '../lib/session'
@@ -29,16 +29,19 @@ export function ConfirmationPage() {
   const pickupItems = items.filter((item) => fulfillmentOf(item.itemId) === 'PICKUP')
   const lookupSkus = items.map((item) => item.sku || item.itemId?.split('::')?.[0] || '')
   const productLookup = useProductLookupBySku(lookupSkus)
-  const discountTotal = items.reduce((sum, item) => {
+  const originalSubtotal = items.reduce((sum, item) => {
     const lookupSku = item.sku || item.itemId?.split('::')?.[0] || ''
     const preview = productLookup[lookupSku] || item
     const current = Number(preview.unitPrice || 0)
     const percent = Number(preview.discountPercent || 0)
-    const original = current && percent > 0 ? current / (1 - percent / 100) : 0
+    const listed = Number(preview.listPrice || 0)
+    const original = listed > current ? listed : (current && percent > 0 ? originalPriceFromDiscount(current, percent) : current)
     const quantity = Number(item.quantity || 0)
-    return sum + (original > current ? (original - current) * quantity : 0)
+    return sum + Number(original || 0) * quantity
   }, 0)
-  const orderDiscount = Number(order?.discountAmount || discountTotal || 0)
+  const discountedSubtotal = Number(order?.subtotalAmount || items.reduce((sum, item) => sum + Number(item.lineTotal || item.unitPrice * item.quantity), 0))
+  const orderDiscount = Math.max(0, originalSubtotal - discountedSubtotal)
+  const amountPaid = Number(order?.totalAmount || 0)
   const cancelMutation = useMutation({
     mutationFn: () => (order?.status === 'PAID' && order?.paymentReference
       ? api.cancelPayment(session.token, order.paymentReference, {
@@ -71,13 +74,13 @@ export function ConfirmationPage() {
         <article className="status-card"><span className="eyebrow">Order number</span><strong id="confirmation-order-number">{order?.orderNumber || '-'}</strong></article>
         <article className="status-card"><span className="eyebrow">Status</span><strong id="confirmation-order-status">{order?.status || '-'}</strong></article>
         <article className="status-card"><span className="eyebrow">Placed</span><strong>{dateLabel(order?.createdAt)}</strong></article>
-        <article className="status-card"><span className="eyebrow">Total</span><strong id="confirmation-total">{money(order?.totalAmount)}</strong></article>
+        <article className="status-card"><span className="eyebrow">Amount paid</span><strong id="confirmation-total">{money(amountPaid)}</strong></article>
       </div>
       <div className="summary-list" style={{ marginTop: 18 }}>
-        <div className="summary-line"><span>Subtotal</span><strong>{money(order?.subtotalAmount, order?.currencyCode || 'USD')}</strong></div>
-        <div className="summary-line"><span>Shipping</span><strong>{order?.shippingAmount ? money(order.shippingAmount, order?.currencyCode || 'USD') : 'Free'}</strong></div>
+        <div className="summary-line"><span>Original price</span><strong>{money(originalSubtotal, order?.currencyCode || 'USD')}</strong></div>
         <div className="summary-line"><span>Discount</span><strong>{orderDiscount > 0 ? `-${money(orderDiscount, order?.currencyCode || 'USD')}` : '$0.00'}</strong></div>
-        <div className="summary-line total"><span>Total</span><strong>{money(order?.totalAmount, order?.currencyCode || 'USD')}</strong></div>
+        <div className="summary-line"><span>Shipping</span><strong>{order?.shippingAmount ? money(order.shippingAmount, order?.currencyCode || 'USD') : 'Free'}</strong></div>
+        <div className="summary-line total"><span>Amount you paid</span><strong>{money(amountPaid, order?.currencyCode || 'USD')}</strong></div>
       </div>
 
       {shippingItems.length ? (

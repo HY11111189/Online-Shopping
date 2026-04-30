@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Navigate } from 'react-router-dom'
 import { useSession } from '../app/SessionProvider'
 import { api } from '../lib/api'
-import { discountAmountFromItem, discountLabel, fulfillmentOf, money } from '../lib/format'
+import { discountAmountFromItem, discountLabel, fulfillmentOf, money, originalPriceFromDiscount } from '../lib/format'
 import { loadSelectedCartItems, saveSelectedCartItems } from '../lib/cartSelection'
 import { useProductLookupBySku } from '../lib/useProductLookup'
 import { signinUrl } from '../lib/session'
@@ -65,6 +65,15 @@ export function CartPage() {
   const shippingCost = shippingSubtotal && !isPremium && shippingSubtotal < 35 ? 6 : 0
   const lookupSkus = items.map((item) => item.sku || item.itemId?.split('::')?.[0] || '')
   const productLookup = useProductLookupBySku(lookupSkus)
+  const originalSubtotal = selectedItems.reduce((sum, item) => {
+    const lookupSku = item.sku || item.itemId?.split('::')?.[0] || ''
+    const preview = productLookup[lookupSku] || item
+    const current = Number(preview.unitPrice || item.unitPrice || 0)
+    const listed = Number(preview.listPrice || 0)
+    const percent = Number(preview.discountPercent || 0)
+    const originalUnit = listed > current ? listed : (current && percent > 0 ? originalPriceFromDiscount(current, percent) : current)
+    return sum + Number(originalUnit || 0) * Number(item.quantity || 0)
+  }, 0)
   const discountTotal = selectedItems.reduce((sum, item) => {
     const lookupSku = item.sku || item.itemId?.split('::')?.[0] || ''
     return sum + discountAmountFromItem({ ...item, ...(productLookup[lookupSku] || {}) })
@@ -90,7 +99,14 @@ export function CartPage() {
     if (quantity <= 0) {
       await api.removeCartItem(session.token, session.customerId, item.itemId)
     } else {
-      await api.updateCartItem(session.token, session.customerId, item.itemId, { quantity })
+      await api.updateCartItem(session.token, session.customerId, item.itemId, {
+        itemId: item.itemId,
+        sku: item.sku || item.itemId?.split('::')?.[0] || '',
+        itemName: item.itemName,
+        upc: item.upc,
+        quantity,
+        unitPrice: item.unitPrice,
+      })
     }
     await queryClient.invalidateQueries({ queryKey: ['cart', session.customerId] })
   }
@@ -172,9 +188,9 @@ export function CartPage() {
         </div>
         <div className="summary-list">
           <div className="summary-line"><span>Selected items</span><strong id="cart-page-unit-count">{unitCount}</strong></div>
-          <div className="summary-line"><span>Subtotal</span><strong>{money(subtotal)}</strong></div>
-          <div className="summary-line"><span>Shipping</span><strong>{shippingCost ? money(shippingCost) : shippingSubtotal ? (isPremium ? 'Free with ShopSmart+' : 'Free over $35') : '$0.00'}</strong></div>
+          <div className="summary-line"><span>Original price</span><strong>{money(originalSubtotal)}</strong></div>
           <div className="summary-line"><span>Discount</span><strong>{discountTotal > 0 ? discountLabel(discountTotal) : '$0.00'}</strong></div>
+          <div className="summary-line"><span>Shipping</span><strong>{shippingCost ? money(shippingCost) : shippingSubtotal ? (isPremium ? 'Free with ShopSmart+' : 'Free over $35') : '$0.00'}</strong></div>
           <div className="summary-line"><span>Membership</span><strong>{isPremium ? 'ShopSmart+ member' : 'Regular member'}</strong></div>
           <div className="summary-line total"><span>Estimated total</span><strong id="cart-page-total">{money(total)}</strong></div>
         </div>

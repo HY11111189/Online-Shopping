@@ -40,7 +40,16 @@ public class CartServiceImpl implements CartService {
     public CartDto addItem(Long customerId, CartItemDto itemDto) {
         ShoppingCart cart = getOrCreateCart(customerId);
         ensureItems(cart);
-        CartItemDto authoritativeItem = materializeCartItem(itemDto);
+        String fulfillmentMethod = fulfillmentFromItemId(itemDto.getItemId());
+        String cartItemId = composeCartItemId(itemDto.getSku(), fulfillmentMethod);
+        int requestedQuantity = itemDto.getQuantity() == null ? 1 : itemDto.getQuantity();
+        int existingQuantity = cart.getItems().stream()
+                .filter(existing -> cartItemId.equals(existing.getItemId()))
+                .mapToInt(existing -> existing.getQuantity() == null ? 0 : existing.getQuantity())
+                .findFirst()
+                .orElse(0);
+
+        CartItemDto authoritativeItem = materializeCartItem(itemDto, existingQuantity + requestedQuantity, fulfillmentMethod);
         cart.getItems().removeIf(existing -> existing.getItemId().equals(authoritativeItem.getItemId()));
         cart.getItems().add(orderMapper.toCartItem(authoritativeItem));
         cart.setUpdatedAt(Instant.now());
@@ -59,7 +68,18 @@ public class CartServiceImpl implements CartService {
             cart.getItems().add(newItem);
             return newItem;
         });
-        CartItemDto authoritativeItem = materializeCartItem(itemDto);
+        String sku = itemDto.getSku();
+        if ((sku == null || sku.isBlank()) && cartItem.getSku() != null && !cartItem.getSku().isBlank()) {
+            sku = cartItem.getSku();
+        }
+        if (sku == null || sku.isBlank()) {
+            throw new IllegalArgumentException("SKU is required to update cart item");
+        }
+        CartItemDto lookupItem = new CartItemDto();
+        lookupItem.setSku(sku);
+        lookupItem.setItemId(itemId);
+        lookupItem.setQuantity(itemDto.getQuantity());
+        CartItemDto authoritativeItem = materializeCartItem(lookupItem, itemDto.getQuantity() == null ? 1 : itemDto.getQuantity(), fulfillmentFromItemId(itemId));
         cartItem.setItemId(itemId);
         cartItem.setSku(authoritativeItem.getSku());
         cartItem.setItemName(authoritativeItem.getItemName());
@@ -109,9 +129,8 @@ public class CartServiceImpl implements CartService {
         }
     }
 
-    private CartItemDto materializeCartItem(CartItemDto itemDto) {
+    private CartItemDto materializeCartItem(CartItemDto itemDto, int requestedQuantity, String fulfillmentMethod) {
         ItemDto catalogItem = itemServiceClient.getItemBySku(itemDto.getSku());
-        Integer requestedQuantity = itemDto.getQuantity() == null ? 1 : itemDto.getQuantity();
         Integer availableQuantity = catalogItem.getInventory() == null ? null : catalogItem.getInventory().getAvailableQuantity();
 
         if (availableQuantity != null && availableQuantity < requestedQuantity) {
@@ -123,7 +142,6 @@ public class CartServiceImpl implements CartService {
         }
 
         CartItemDto authoritative = new CartItemDto();
-        String fulfillmentMethod = fulfillmentFromItemId(itemDto.getItemId());
         authoritative.setItemId(composeCartItemId(catalogItem.getSku(), fulfillmentMethod));
         authoritative.setSku(catalogItem.getSku());
         authoritative.setItemName(catalogItem.getItemName());

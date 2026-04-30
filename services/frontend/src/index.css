@@ -1,4 +1,4 @@
-@import url('/storefront.css?v=20260428c');
+@import url('../../account-service/src/main/resources/static/storefront.css');
 
 body {
   margin: 0;

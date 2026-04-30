@@ -197,7 +197,7 @@ export function Layout() {
                   onClick={() => setAccountMenuOpen((value) => !value)}
                 >
                   <span className="header-stack">
-                    <strong>Account</strong>
+                    <strong><span className="header-icon" aria-hidden="true">👤</span> Account</strong>
                     <span>{session.username || 'My account'}</span>
                   </span>
                 </button>
@@ -218,14 +218,14 @@ export function Layout() {
             ) : (
               <NavLink className="account-action" to={signinUrl(`${window.location.pathname}${window.location.search}`)}>
                 <span className="header-stack">
-                  <strong>Sign in</strong>
+                  <strong><span className="header-icon" aria-hidden="true">👤</span> Sign in</strong>
                   <span>Account</span>
                 </span>
               </NavLink>
             )}
             <NavLink className="account-action" to="/wishlist.html">
               <span className="header-stack">
-                <strong>Lists</strong>
+                <strong><span className="header-icon" aria-hidden="true">♥</span> Lists</strong>
                 <span>Saved items</span>
               </span>
             </NavLink>
