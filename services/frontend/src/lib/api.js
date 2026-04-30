@@ -30,13 +30,14 @@ export const api = {
   updateAccount: (token, accountId, payload) => apiRequest(`/api/v1/shopping/accounts/${encodeURIComponent(accountId)}`, { token, method: 'PUT', body: payload }),
   getItems: () => apiRequest('/api/v1/shopping/items'),
   getCategories: () => apiRequest('/api/v1/shopping/items/categories'),
-  searchItems: ({ q, category, brand, inStock, limit = 24 }) => {
+  searchItems: ({ q, limit = 24 }) => {
     const params = new URLSearchParams()
     if (q) params.set('q', q)
-    if (category) params.set('category', category)
-    if (brand) params.set('brand', brand)
-    if (typeof inStock === 'boolean') params.set('inStock', String(inStock))
     if (limit) params.set('limit', String(limit))
+    return apiRequest(`/api/v1/shopping/items/search?${params.toString()}`)
+  },
+  getItemsByCategory: (category, limit = 48) => {
+    const params = new URLSearchParams({ category, limit: String(limit) })
     return apiRequest(`/api/v1/shopping/items/search?${params.toString()}`)
   },
   getItemBySku: (sku) => apiRequest(`/api/v1/shopping/items/sku/${encodeURIComponent(sku)}`),

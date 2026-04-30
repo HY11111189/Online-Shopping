@@ -196,8 +196,11 @@ export function Layout() {
                   type="button"
                   onClick={() => setAccountMenuOpen((value) => !value)}
                 >
-                  <span className="header-stack">
-                    <strong><span className="header-icon" aria-hidden="true">👤</span> Account</strong>
+                  <span className="cart-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                  </span>
+                  <span className="cart-copy">
+                    <strong>Account</strong>
                     <span>{session.username || 'My account'}</span>
                   </span>
                 </button>
@@ -217,20 +220,28 @@ export function Layout() {
               </div>
             ) : (
               <NavLink className="account-action" to={signinUrl(`${window.location.pathname}${window.location.search}`)}>
-                <span className="header-stack">
-                  <strong><span className="header-icon" aria-hidden="true">👤</span> Sign in</strong>
+                <span className="cart-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                </span>
+                <span className="cart-copy">
+                  <strong>Sign in</strong>
                   <span>Account</span>
                 </span>
               </NavLink>
             )}
             <NavLink className="account-action" to="/wishlist.html">
-              <span className="header-stack">
-                <strong><span className="header-icon" aria-hidden="true">♥</span> Lists</strong>
+              <span className="cart-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              </span>
+              <span className="cart-copy">
+                <strong>Lists</strong>
                 <span>Saved items</span>
               </span>
             </NavLink>
             <NavLink className="account-action cart-action" to="/cart.html">
-              <span className="cart-icon">🛒</span>
+              <span className="cart-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20" aria-hidden="true"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+              </span>
               <span className="cart-copy">
                 <strong>Cart</strong>
                 <span id="header-cart-pill">{cartUnits} item{cartUnits === 1 ? '' : 's'}</span>

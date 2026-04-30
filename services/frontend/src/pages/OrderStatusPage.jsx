@@ -70,112 +70,85 @@ export function OrderStatusPage() {
     }
   }, [navigate, order])
 
+  const statusLabel = order?.status === 'CANCELLED' ? 'Order cancelled' : order?.status || 'Processing'
+  const statusClass = { PAID: 'order-status-paid', CANCELLED: 'order-status-cancelled', REFUNDED: 'order-status-refunded', FAILED: 'order-status-failed' }[order?.status] || 'order-status-pending'
+
+  function renderItems(itemList) {
+    return itemList.map((item) => {
+      const lookupSku = item.sku || item.itemId?.split('::')?.[0] || ''
+      const preview = productLookup[lookupSku] || item
+      const imageUrl = preview.pictureUrls?.[0] || item.pictureUrls?.[0] || ''
+      return (
+        <div key={item.itemId} className="order-item-enhanced">
+          <div className="order-item-thumb">
+            {imageUrl ? <img src={imageUrl} alt={preview.itemName || item.itemName} /> : <span style={{ fontSize: '1.4rem' }}>📦</span>}
+          </div>
+          <div className="order-item-details">
+            <strong>{item.itemName}</strong>
+            <span>Qty: {item.quantity}</span>
+          </div>
+          <span className="order-item-price">{money(item.lineTotal || item.unitPrice * item.quantity, order?.currencyCode || 'USD')}</span>
+        </div>
+      )
+    })
+  }
+
   return (
     <section className="confirmation-panel panel">
-      <div className="section-head">
-        <div>
+      {/* Status banner */}
+      <div className="order-status-banner">
+        <div className="order-status-banner-copy">
           <p className="eyebrow">Order details</p>
-          <h2>{order?.status === 'CANCELLED' ? 'Order cancelled' : order?.status || 'Processing order'}</h2>
+          <h2>{statusLabel}</h2>
+          <p>{order?.statusReason || 'We are processing your order.'}</p>
+        </div>
+        <span className={`order-status-badge ${statusClass}`} style={{ marginLeft: 'auto', alignSelf: 'flex-start' }}>{order?.status || 'Processing'}</span>
+      </div>
+
+      {/* Key info grid */}
+      <div className="order-info-grid">
+        <div className="order-info-cell"><span className="eyebrow">Order number</span><strong>{order?.orderNumber || orderNumber}</strong></div>
+        <div className="order-info-cell"><span className="eyebrow">Date placed</span><strong>{dateLabel(order?.createdAt)}</strong></div>
+        <div className="order-info-cell"><span className="eyebrow">Payment ref</span><strong>{order?.paymentReference || '—'}</strong></div>
+        <div className="order-info-cell"><span className="eyebrow">Items</span><strong>{items.length} item{items.length !== 1 ? 's' : ''} · {shippingItems.length} ship · {pickupItems.length} pickup</strong></div>
+      </div>
+
+      {/* Order summary */}
+      <div className="order-receipt">
+        <p className="order-receipt-title">Order summary</p>
+        <div className="order-receipt-rows">
+          <div className="order-receipt-row"><span className="receipt-label">Subtotal</span><span className="receipt-value">{money(order?.subtotalAmount)}</span></div>
+          <div className="order-receipt-row"><span className="receipt-label">Shipping</span><span className="receipt-value">{order?.shippingAmount ? money(order.shippingAmount, order?.currencyCode || 'USD') : 'Free'}</span></div>
+          {orderDiscount > 0 && <div className="order-receipt-row receipt-discount"><span className="receipt-label">Discount</span><span className="receipt-value">-{money(orderDiscount, order?.currencyCode || 'USD')}</span></div>}
+          <div className="order-receipt-row receipt-total"><span className="receipt-label">Total</span><span className="receipt-value">{money(order?.totalAmount)}</span></div>
         </div>
       </div>
-      <div className="status-grid">
-        <article className="status-card"><span className="eyebrow">Order number</span><strong>{order?.orderNumber || orderNumber}</strong></article>
-        <article className="status-card"><span className="eyebrow">Status</span><strong>{order?.status || '-'}</strong></article>
-        <article className="status-card"><span className="eyebrow">Payment</span><strong>{order?.paymentReference || '-'}</strong></article>
-        <article className="status-card"><span className="eyebrow">Total</span><strong>{money(order?.totalAmount)}</strong></article>
-      </div>
-      <div className="message-box" style={{ marginTop: 18 }}>{order?.statusReason || 'We are processing your order.'}</div>
-      <div className="status-grid" style={{ marginTop: 18 }}>
-        <article className="status-card"><span className="eyebrow">Placed</span><strong>{dateLabel(order?.createdAt)}</strong></article>
-        <article className="status-card"><span className="eyebrow">Shipping</span><strong>{shippingItems.length} item(s)</strong></article>
-        <article className="status-card"><span className="eyebrow">Pickup</span><strong>{pickupItems.length} item(s)</strong></article>
-      </div>
-      <div className="summary-list" style={{ marginTop: 18 }}>
-        <div className="summary-line"><span>Subtotal</span><strong>{money(order?.subtotalAmount)}</strong></div>
-        <div className="summary-line"><span>Shipping</span><strong>{order?.shippingAmount ? money(order.shippingAmount, order?.currencyCode || 'USD') : 'Free'}</strong></div>
-        <div className="summary-line"><span>Discount</span><strong>{orderDiscount > 0 ? `-${money(orderDiscount, order?.currencyCode || 'USD')}` : '$0.00'}</strong></div>
-        <div className="summary-line total"><span>Total</span><strong>{money(order?.totalAmount)}</strong></div>
-      </div>
-      <div className="order-history-addresses" style={{ marginTop: 18 }}>
-        {shippingItems.length ? (
-          <article className="order-history-item">
-            <span className="eyebrow">Delivery address</span>
-            <strong>{fullAddress(order?.shippingAddress)}</strong>
-          </article>
-        ) : null}
-        {pickupItems.length ? (
-          <article className="order-history-item">
-            <span className="eyebrow">Pickup location</span>
-            <strong>ShopSmart Supercenter, 2825 N Ashland Ave, Chicago, IL</strong>
-          </article>
-        ) : null}
-      </div>
+
+      {/* Shipping items */}
       {shippingItems.length ? (
-        <div className="confirmation-fulfillment-block" style={{ marginTop: 18 }}>
-          <div className="section-head" style={{ marginBottom: 10 }}>
-            <div>
-              <p className="eyebrow">Shipping</p>
-              <h3 style={{ margin: '4px 0 0' }}>Delivery items</h3>
-            </div>
-            <span className="order-status-badge order-status-paid">
-              {shippingItems.length} item{shippingItems.length !== 1 ? 's' : ''}
-            </span>
+        <div className="order-fulfillment-block">
+          <div className="order-fulfillment-header">
+            <span className="order-fulfillment-badge">🚚 Shipping — {shippingItems.length} item{shippingItems.length !== 1 ? 's' : ''}</span>
           </div>
-          <div className="message-box" style={{ marginBottom: 10 }}>
-            Shipping to: <strong>{fullAddress(order?.shippingAddress)}</strong>
-          </div>
-          <div className="confirmation-item-list">
-            {shippingItems.map((item) => (
-              <div key={item.itemId} className="confirmation-item-row">
-                <div className="review-item-media">
-                  {(() => {
-                    const lookupSku = item.sku || item.itemId?.split('::')?.[0] || ''
-                    const preview = productLookup[lookupSku] || item
-                    const imageUrl = preview.pictureUrls?.[0] || item.pictureUrls?.[0] || ''
-                    return imageUrl ? <img src={imageUrl} alt={preview.itemName || item.itemName} /> : <div className="review-item-fallback">No image</div>
-                  })()}
-                </div>
-                <span>{item.itemName}</span>
-                <strong>{money(item.lineTotal || item.unitPrice * item.quantity, order?.currencyCode || 'USD')}</strong>
-              </div>
-            ))}
-          </div>
+          {order?.shippingAddress && (
+            <div className="order-fulfillment-address">📍 {fullAddress(order.shippingAddress)}</div>
+          )}
+          {renderItems(shippingItems)}
         </div>
       ) : null}
 
+      {/* Pickup items */}
       {pickupItems.length ? (
-        <div className="confirmation-fulfillment-block" style={{ marginTop: 18 }}>
-          <div className="section-head" style={{ marginBottom: 10 }}>
-            <div>
-              <p className="eyebrow">In-store pickup</p>
-              <h3 style={{ margin: '4px 0 0' }}>Pickup items</h3>
-            </div>
-            <span className="order-status-badge order-status-paid">
-              {pickupItems.length} item{pickupItems.length !== 1 ? 's' : ''}
-            </span>
+        <div className="order-fulfillment-block">
+          <div className="order-fulfillment-header">
+            <span className="order-fulfillment-badge">🏪 In-store pickup — {pickupItems.length} item{pickupItems.length !== 1 ? 's' : ''}</span>
           </div>
-          <div className="message-box" style={{ marginBottom: 10 }}>
-            Ready at: <strong>ShopSmart Supercenter, 2825 N Ashland Ave, Chicago, IL</strong>
-          </div>
-          <div className="confirmation-item-list">
-            {pickupItems.map((item) => (
-              <div key={item.itemId} className="confirmation-item-row">
-                <div className="review-item-media">
-                  {(() => {
-                    const lookupSku = item.sku || item.itemId?.split('::')?.[0] || ''
-                    const preview = productLookup[lookupSku] || item
-                    const imageUrl = preview.pictureUrls?.[0] || item.pictureUrls?.[0] || ''
-                    return imageUrl ? <img src={imageUrl} alt={preview.itemName || item.itemName} /> : <div className="review-item-fallback">No image</div>
-                  })()}
-                </div>
-                <span>{item.itemName}</span>
-                <strong>{money(item.lineTotal || item.unitPrice * item.quantity, order?.currencyCode || 'USD')}</strong>
-              </div>
-            ))}
-          </div>
+          <div className="order-fulfillment-address">📍 ShopSmart Supercenter, 2825 N Ashland Ave, Chicago, IL</div>
+          {renderItems(pickupItems)}
         </div>
       ) : null}
-      <div className="inline-actions" style={{ marginTop: 18 }}>
+
+      <div className="inline-actions" style={{ marginTop: 20 }}>
         <button
           className="secondary-button"
           type="button"

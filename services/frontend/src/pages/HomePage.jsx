@@ -26,8 +26,9 @@ function CatalogTile({ addedToCart, addToCart, addedToWishlist, item, saved, tog
         {item.pictureUrls?.[0] ? <img src={item.pictureUrls[0]} alt={item.itemName} /> : <div className="tile-fallback">No image</div>}
       </div>
       <div className="tile-body">
-        <span className="eyebrow">{item.brand || item.category || 'ShopSmart'}</span>
-        <h3 className="product-title">{item.itemName}</h3>
+        <div className="tile-add-row">
+          <button className="tile-cta primary" type="button" onClick={(event) => addToCart(item, event)}>{addedToCart ? 'Added' : 'Add'}</button>
+        </div>
         <div className="price-stack">
           {Number(item.discountPercent || 0) > 0 ? (
             <div className="price-now-row">
@@ -39,9 +40,8 @@ function CatalogTile({ addedToCart, addToCart, addedToWishlist, item, saved, tog
             <strong className="tile-price">{money(item.unitPrice, item.currencyCode || 'USD')}</strong>
           )}
         </div>
-        <div className="tile-footer tile-footer-actions">
-          <button className="tile-cta primary" type="button" onClick={(event) => addToCart(item, event)}>{addedToCart ? 'Added to cart' : 'Add'}</button>
-        </div>
+        <h3 className="product-title">{item.itemName}</h3>
+        <span className="eyebrow">{item.brand || item.category || 'ShopSmart'}</span>
       </div>
     </Link>
   )
@@ -65,8 +65,8 @@ export function HomePage() {
   })
 
   const itemsQuery = useQuery({
-    queryKey: ['catalog-home', q, category],
-    queryFn: () => api.searchItems({ q, category, limit: 36 }),
+    queryKey: category ? ['catalog-category', category] : q ? ['catalog-search', q] : ['catalog-home'],
+    queryFn: () => category ? api.getItemsByCategory(category, 48) : api.searchItems({ q, limit: 36 }),
     staleTime: 60_000,
   })
 
@@ -220,7 +220,7 @@ export function HomePage() {
         </section>
       ) : null}
 
-      {!searchMode ? (
+      {!searchMode && !category ? (
         <section className="home-category-blocks" aria-label="Popular product picks" style={{ marginTop: 18 }}>
           {categoryList.slice(0, 7).map((dept) => {
             const deptItems = items.filter((item) => normalizeCategoryName(item.category) === dept).slice(0, 4)

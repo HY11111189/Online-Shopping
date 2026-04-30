@@ -60,103 +60,92 @@ export function ConfirmationPage() {
   })
 
   const isCancelled = order?.status === 'CANCELLED'
-  const cancelLabel = isCancelled ? 'Cancelled' : 'Cancel order'
+  const statusClass = isCancelled ? 'order-status-cancelled' : 'order-status-paid'
+  const statusLabel = isCancelled ? 'Order cancelled' : order?.status || 'PAID'
+
+  function renderItems(itemList) {
+    return itemList.map((item) => {
+      const lookupSku = item.sku || item.itemId?.split('::')?.[0] || ''
+      const preview = productLookup[lookupSku] || item
+      const imageUrl = preview.pictureUrls?.[0] || item.pictureUrls?.[0] || ''
+      return (
+        <div key={item.itemId} className="order-item-enhanced">
+          <div className="order-item-thumb">
+            {imageUrl ? <img src={imageUrl} alt={preview.itemName || item.itemName} /> : <span style={{ fontSize: '1.4rem' }}>📦</span>}
+          </div>
+          <div className="order-item-details">
+            <strong>{item.itemName}</strong>
+            <span>Qty: {item.quantity}</span>
+          </div>
+          <span className="order-item-price">{money(item.lineTotal || item.unitPrice * item.quantity, order?.currencyCode || 'USD')}</span>
+        </div>
+      )
+    })
+  }
 
   return (
     <section className="confirmation-panel panel">
-      <div className="section-head">
-        <div>
+      {/* Status banner */}
+      <div className="order-status-banner">
+        <div className="order-status-banner-copy">
           <p className="eyebrow">{isCancelled ? 'Order details' : 'Order confirmation'}</p>
           <h2>{isCancelled ? 'Order cancelled' : 'Your order is confirmed'}</h2>
+          <p>{isCancelled ? 'This order has been cancelled.' : 'Thanks for your purchase! We\'re getting your items ready.'}</p>
         </div>
-      </div>
-      <div className="status-grid">
-        <article className="status-card"><span className="eyebrow">Order number</span><strong id="confirmation-order-number">{order?.orderNumber || '-'}</strong></article>
-        <article className="status-card"><span className="eyebrow">Status</span><strong id="confirmation-order-status">{order?.status || '-'}</strong></article>
-        <article className="status-card"><span className="eyebrow">Placed</span><strong>{dateLabel(order?.createdAt)}</strong></article>
-        <article className="status-card"><span className="eyebrow">Amount paid</span><strong id="confirmation-total">{money(amountPaid)}</strong></article>
-      </div>
-      <div className="summary-list" style={{ marginTop: 18 }}>
-        <div className="summary-line"><span>Original price</span><strong>{money(originalSubtotal, order?.currencyCode || 'USD')}</strong></div>
-        <div className="summary-line"><span>Discount</span><strong>{orderDiscount > 0 ? `-${money(orderDiscount, order?.currencyCode || 'USD')}` : '$0.00'}</strong></div>
-        <div className="summary-line"><span>Shipping</span><strong>{order?.shippingAmount ? money(order.shippingAmount, order?.currencyCode || 'USD') : 'Free'}</strong></div>
-        <div className="summary-line total"><span>Amount you paid</span><strong>{money(amountPaid, order?.currencyCode || 'USD')}</strong></div>
+        <span className={`order-status-badge ${statusClass}`} style={{ marginLeft: 'auto', alignSelf: 'flex-start' }}>{statusLabel}</span>
       </div>
 
+      {/* Key info grid */}
+      <div className="order-info-grid">
+        <div className="order-info-cell"><span className="eyebrow">Order number</span><strong id="confirmation-order-number">{order?.orderNumber || '—'}</strong></div>
+        <div className="order-info-cell"><span className="eyebrow">Date placed</span><strong>{dateLabel(order?.createdAt)}</strong></div>
+        <div className="order-info-cell"><span className="eyebrow">Status</span><strong id="confirmation-order-status">{order?.status || '—'}</strong></div>
+        <div className="order-info-cell"><span className="eyebrow">Amount paid</span><strong id="confirmation-total">{money(amountPaid, order?.currencyCode || 'USD')}</strong></div>
+      </div>
+
+      {/* Order summary */}
+      <div className="order-receipt">
+        <p className="order-receipt-title">Order summary</p>
+        <div className="order-receipt-rows">
+          <div className="order-receipt-row"><span className="receipt-label">Original price</span><span className="receipt-value">{money(originalSubtotal, order?.currencyCode || 'USD')}</span></div>
+          {orderDiscount > 0 && <div className="order-receipt-row receipt-discount"><span className="receipt-label">Discount</span><span className="receipt-value">-{money(orderDiscount, order?.currencyCode || 'USD')}</span></div>}
+          <div className="order-receipt-row"><span className="receipt-label">Shipping</span><span className="receipt-value">{order?.shippingAmount ? money(order.shippingAmount, order?.currencyCode || 'USD') : 'Free'}</span></div>
+          <div className="order-receipt-row receipt-total"><span className="receipt-label">Amount you paid</span><span className="receipt-value">{money(amountPaid, order?.currencyCode || 'USD')}</span></div>
+        </div>
+      </div>
+
+      {/* Shipping items */}
       {shippingItems.length ? (
-        <div className="confirmation-fulfillment-block" style={{ marginTop: 18 }}>
-          <div className="section-head" style={{ marginBottom: 10 }}>
-            <div>
-              <p className="eyebrow">Shipping</p>
-              <h3 style={{ margin: '4px 0 0' }}>Delivery items</h3>
-            </div>
-            <span className="order-status-badge order-status-paid">
-              {shippingItems.length} item{shippingItems.length !== 1 ? 's' : ''}
-            </span>
+        <div className="order-fulfillment-block">
+          <div className="order-fulfillment-header">
+            <span className="order-fulfillment-badge">🚚 Shipping — {shippingItems.length} item{shippingItems.length !== 1 ? 's' : ''}</span>
           </div>
-          <div className="message-box" style={{ marginBottom: 10 }}>
-            Shipping to: <strong>{fullAddress(order?.shippingAddress)}</strong>
-          </div>
-          <div className="confirmation-item-list">
-            {shippingItems.map((item) => (
-              <div key={item.itemId} className="confirmation-item-row">
-                <div className="review-item-media">
-                  {(() => {
-                    const lookupSku = item.sku || item.itemId?.split('::')?.[0] || ''
-                    const preview = productLookup[lookupSku] || item
-                    const imageUrl = preview.pictureUrls?.[0] || item.pictureUrls?.[0] || ''
-                    return imageUrl ? <img src={imageUrl} alt={preview.itemName || item.itemName} /> : <div className="review-item-fallback">No image</div>
-                  })()}
-                </div>
-                <span>{item.itemName}</span>
-                <strong>{money(item.lineTotal || item.unitPrice * item.quantity, order?.currencyCode || 'USD')}</strong>
-              </div>
-            ))}
-          </div>
+          {order?.shippingAddress && (
+            <div className="order-fulfillment-address">📍 {fullAddress(order.shippingAddress)}</div>
+          )}
+          {renderItems(shippingItems)}
         </div>
       ) : null}
 
+      {/* Pickup items */}
       {pickupItems.length ? (
-        <div className="confirmation-fulfillment-block" style={{ marginTop: 18 }}>
-          <div className="section-head" style={{ marginBottom: 10 }}>
-            <div>
-              <p className="eyebrow">In-store pickup</p>
-              <h3 style={{ margin: '4px 0 0' }}>Pickup items</h3>
-            </div>
-            <span className="order-status-badge order-status-paid">
-              {pickupItems.length} item{pickupItems.length !== 1 ? 's' : ''}
-            </span>
+        <div className="order-fulfillment-block">
+          <div className="order-fulfillment-header">
+            <span className="order-fulfillment-badge">🏪 In-store pickup — {pickupItems.length} item{pickupItems.length !== 1 ? 's' : ''}</span>
           </div>
-          <div className="message-box" style={{ marginBottom: 10 }}>
-            Ready at: <strong>{PICKUP_LOCATION}</strong>
-          </div>
-          <div className="confirmation-item-list">
-            {pickupItems.map((item) => (
-              <div key={item.itemId} className="confirmation-item-row">
-                <div className="review-item-media">
-                  {(() => {
-                    const lookupSku = item.sku || item.itemId?.split('::')?.[0] || ''
-                    const preview = productLookup[lookupSku] || item
-                    const imageUrl = preview.pictureUrls?.[0] || item.pictureUrls?.[0] || ''
-                    return imageUrl ? <img src={imageUrl} alt={preview.itemName || item.itemName} /> : <div className="review-item-fallback">No image</div>
-                  })()}
-                </div>
-                <span>{item.itemName}</span>
-                <strong>{money(item.lineTotal || item.unitPrice * item.quantity, order?.currencyCode || 'USD')}</strong>
-              </div>
-            ))}
-          </div>
+          <div className="order-fulfillment-address">📍 {PICKUP_LOCATION}</div>
+          {renderItems(pickupItems)}
         </div>
       ) : null}
 
-      <div className="inline-actions" style={{ marginTop: 18 }}>
+      <div className="inline-actions" style={{ marginTop: 20 }}>
         <button
           className="secondary-button"
           type="button"
           onClick={() => cancelMutation.mutate()}
           disabled={!canCancel(order) || cancelMutation.isPending}
         >
-          {isCancelled ? 'Order cancelled' : cancelLabel}
+          {isCancelled ? 'Order cancelled' : 'Cancel order'}
         </button>
         <Link className="primary-button" to="/index.html">Continue shopping</Link>
         <Link className="secondary-button" to="/account.html">View account</Link>
