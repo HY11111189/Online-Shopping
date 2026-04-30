@@ -3,10 +3,22 @@ set -e
 
 TOPIC_NAME="${SHOPPING_KAFKA_ORDER_PLACED_TOPIC:-shopping.order.placed.v1}"
 PARTITIONS="${SHOPPING_KAFKA_ORDER_PLACED_PARTITIONS:-8}"
-BROKER="localhost:9092"
+BROKER="127.0.0.1:9092"
 
 if ! docker ps --format '{{.Names}}' | grep -qx 'shopping-kafka'; then
   echo "shopping-kafka container is not running" >&2
+  exit 1
+fi
+
+for i in $(seq 1 60); do
+  if docker exec shopping-kafka kafka-topics --bootstrap-server "$BROKER" --list >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+
+if ! docker exec shopping-kafka kafka-topics --bootstrap-server "$BROKER" --list >/dev/null 2>&1; then
+  echo "Timed out waiting for Kafka admin commands on $BROKER" >&2
   exit 1
 fi
 

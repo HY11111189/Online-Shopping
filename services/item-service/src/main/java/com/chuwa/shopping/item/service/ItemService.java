@@ -19,6 +19,10 @@ public interface ItemService {
 
     List<ItemDto> getAllItems();
 
+    List<String> getCategories();
+
+    List<ItemDto> searchItems(String query, String category, String brand, Boolean inStock, int limit);
+
     InventoryDto updateInventory(String itemId, InventoryDto inventoryDto);
 
     InventoryAdjustmentResultDto adjustInventory(String sku, InventoryAdjustmentRequestDto requestDto);

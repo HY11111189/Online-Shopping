@@ -1,116 +1,13 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ShopSmart Market | Product</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/storefront.css?v=20260428c">
-</head>
-<body data-page="product">
-<div class="page-shell">
-    <header class="site-header">
-        <div class="header-main">
-            <a class="brand-chip" href="/index.html">
-                <span class="brand-burst">*</span>
-                <span class="brand-copy"><strong>ShopSmart Market</strong><span>Product details</span></span>
-            </a>
-            <div class="location-chip"><span class="eyebrow">Fulfillment</span><strong>Shipping or pickup</strong><span>Choose how you get it</span></div>
-            <form class="search-shell" id="global-search-form">
-                <label class="sr-only" for="global-search">Search catalog</label>
-                <input id="global-search" type="search" placeholder="Search another product">
-                <button class="primary-button" type="submit">Search</button>
-            </form>
-            <div class="header-actions">
-                <a class="account-action" data-auth-link="true" href="/signin.html">Sign in</a>
-                <a class="account-action" data-wishlist-link="true" href="/wishlist.html">Lists</a>
-                <a class="account-action cart-action" href="/cart.html">
-                    <span class="cart-icon">🛒</span>
-                    <span class="cart-copy">
-                        <strong>Cart</strong>
-                        <span id="header-cart-pill">0 items</span>
-                    </span>
-                </a>
-            </div>
-        </div>
-    </header>
-    <main class="page-main">
-        <section class="product-layout">
-            <article class="section-panel panel" id="product-detail-panel">
-                <div class="message-box" id="product-state">Loading product details...</div>
-                <div id="product-detail-content" hidden>
-                    <div class="product-detail-grid">
-                        <div class="product-gallery">
-                            <div class="tile-image product-image-frame">
-                                <img id="product-image" alt="">
-                                <div class="tile-fallback" id="product-image-fallback">No image</div>
-                            </div>
-                        </div>
-                        <div class="stack product-copy">
-                            <div>
-                                <p class="eyebrow" id="product-brand">Brand</p>
-                                <h1 class="product-title product-page-title" id="product-name"></h1>
-                                <p class="helper" id="product-meta"></p>
-                            </div>
-                            <div class="stack-tight">
-                                <strong class="tile-price product-page-price" id="product-price"></strong>
-                                <div class="inline-actions product-price-meta">
-                                    <span class="member-badge" id="product-discount-badge" hidden>Deal</span>
-                                    <span class="tag" id="product-inventory-tag">In stock</span>
-                                </div>
-                            </div>
-                            <p id="product-description"></p>
-                        </div>
-                    </div>
-                </div>
-            </article>
-            <aside class="product-buy-box panel sticky-column">
-                <div class="stack">
-                    <div class="stack-tight">
-                        <p class="eyebrow">Get it now</p>
-                        <h2>How do you want it?</h2>
-                    </div>
-                    <div class="buy-box-card">
-                        <div class="stack-tight">
-                            <strong class="buy-box-price" id="product-buybox-price">$0.00</strong>
-                            <span class="tag" id="product-buybox-inventory">In stock</span>
-                        </div>
-                        <div class="delivery-choice-group">
-                            <button class="delivery-choice active" data-fulfillment="shipping" type="button">Shipping</button>
-                            <button class="delivery-choice" data-fulfillment="pickup" type="button">Pickup</button>
-                        </div>
-                        <div class="buy-box-fulfillment" id="product-fulfillment-note">
-                            <strong id="product-fulfillment-title">Shipping</strong>
-                            <span id="product-fulfillment-detail">Ships to your saved address at checkout.</span>
-                        </div>
-                        <div class="qty-group buy-box-qty">
-                            <button class="qty-button" type="button" id="product-qty-minus">-</button>
-                            <strong id="product-qty-readout">1</strong>
-                            <button class="qty-button" type="button" id="product-qty-plus">+</button>
-                        </div>
-                        <div class="stack">
-                            <div class="stack-actions">
-                                <button class="primary-button" type="button" id="product-add-button">Add to cart</button>
-                                <button class="secondary-button" type="button" id="product-wishlist-button">Add to list</button>
-                            </div>
-                            <div class="buy-box-cart-row">
-                                <span class="eyebrow">In your cart</span>
-                                <strong id="product-cart-units">0 items</strong>
-                                <a class="secondary-button" href="/cart.html">View cart</a>
-                            </div>
-                            <div class="buy-box-returns">
-                                <strong>Returns</strong>
-                                <span>Free 90-day returns on most items</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </aside>
-        </section>
-    </main>
-</div>
-<script src="/storefront.js?v=20260428c"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ShopSmart Market</title>
+    <script type="module" crossorigin src="/assets/index-DQmVFLQu.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CnTM1IRn.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
 </html>

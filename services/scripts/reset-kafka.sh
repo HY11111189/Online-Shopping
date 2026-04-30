@@ -1,8 +1,12 @@
 #!/bin/sh
 set -e
 
-COMPOSE_FILE="docker-compose.yml"
-TOPIC_SCRIPT="./configure-kafka-topic.sh"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SERVICES_DIR="$(dirname "$SCRIPT_DIR")"
+COMPOSE_FILE="$SERVICES_DIR/docker-compose.yml"
+TOPIC_SCRIPT="$SCRIPT_DIR/configure-kafka-topic.sh"
+COMPOSE_HTTP_TIMEOUT="${COMPOSE_HTTP_TIMEOUT:-180}"
+export COMPOSE_HTTP_TIMEOUT
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker is required" >&2

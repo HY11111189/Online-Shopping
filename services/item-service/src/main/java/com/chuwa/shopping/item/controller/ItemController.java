@@ -39,6 +39,20 @@ public class ItemController {
         return ResponseEntity.ok(itemService.getAllItems());
     }
 
+    @GetMapping("/categories")
+    public ResponseEntity<List<String>> getCategories() {
+        return ResponseEntity.ok(itemService.getCategories());
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<List<ItemDto>> searchItems(@RequestParam(value = "q", required = false) String query,
+                                                     @RequestParam(value = "category", required = false) String category,
+                                                     @RequestParam(value = "brand", required = false) String brand,
+                                                     @RequestParam(value = "inStock", required = false) Boolean inStock,
+                                                     @RequestParam(value = "limit", defaultValue = "24") int limit) {
+        return ResponseEntity.ok(itemService.searchItems(query, category, brand, inStock, limit));
+    }
+
     @GetMapping("/sku/{sku}")
     public ResponseEntity<ItemDto> getItemBySku(@PathVariable String sku) {
         return ResponseEntity.ok(itemService.getItemBySku(sku));

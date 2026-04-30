@@ -9,6 +9,7 @@ docker rm -f \
   shopping-gateway-service \
   shopping-mysql \
   shopping-mongo \
+  shopping-elasticsearch \
   shopping-cassandra \
   shopping-cassandra-init \
   shopping-kafka \
