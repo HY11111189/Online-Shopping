@@ -2872,6 +2872,24 @@ body:not([data-page="home"]) .brand-burst {
     gap: 8px;
 }
 
+.assistant-selection-panel {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(31, 42, 68, 0.10);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(247, 249, 253, 0.98));
+}
+
+.assistant-selection-copy {
+    display: grid;
+    gap: 4px;
+}
+
+.assistant-selection-copy strong {
+    font-size: 1rem;
+}
+
 .assistant-chip {
     border: 1px solid rgba(31, 42, 68, 0.12);
     background: rgba(0, 48, 105, 0.05);

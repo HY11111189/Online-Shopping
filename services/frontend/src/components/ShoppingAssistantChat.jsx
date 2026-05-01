@@ -10,12 +10,15 @@ const quickPrompts = [
   'Find toys for me',
   'Add a coffee maker to my cart',
   'Show my recent orders',
-  'Place my order',
 ]
 
 function ChatItemCard({ item, message, onAdd, onChoose }) {
-  const chooseMode = message?.state === 'clarification'
-  const buttonLabel = chooseMode ? 'Choose this' : 'Add'
+  const chooseMode = message?.state === 'clarification' || message?.state === 'choose_product'
+  const buttonLabel = chooseMode
+    ? message?.intent === 'PLACE_ORDER'
+      ? 'Buy this'
+      : 'Choose this'
+    : 'Add to cart'
   return (
     <article className="assistant-item-card">
       <div className="assistant-item-image">
@@ -69,6 +72,7 @@ export function ShoppingAssistantChat() {
   ])
   const [isSending, setIsSending] = useState(false)
   const [status, setStatus] = useState('')
+  const [pendingSelection, setPendingSelection] = useState(null)
   const listRef = useRef(null)
 
   const signedIn = isSessionActive(session)
@@ -86,6 +90,7 @@ export function ShoppingAssistantChat() {
     setOpen(true)
     setStatus('')
     setDraft('')
+    setPendingSelection(null)
     setMessages((current) => [...current, { role: 'user', text }])
     setIsSending(true)
     try {
@@ -136,16 +141,70 @@ export function ShoppingAssistantChat() {
   }
 
   function chooseItem(item, message) {
-    const name = item.itemName || item.sku
     if (message?.intent === 'PLACE_ORDER') {
-      sendMessage(`Order ${name} for me`)
+      setPendingSelection(null)
+      sendSelectionAction('PLACE_ORDER', item)
       return
     }
-    if (message?.intent === 'ADD_TO_CART') {
-      sendMessage(`Add ${name} to my cart`)
+    if (message?.intent === 'SEARCH_PRODUCTS' || message?.state === 'choose_product') {
+      setPendingSelection({ item, mode: 'search_choice' })
       return
     }
-    sendMessage(`Show me ${name}`)
+    setPendingSelection({ item, mode: 'search_choice' })
+  }
+
+  function addSelectedToCart() {
+    if (!pendingSelection?.item) return
+    addItem(pendingSelection.item)
+    setPendingSelection(null)
+  }
+
+  function placeSelectedOrder() {
+    if (!pendingSelection?.item) return
+    const item = pendingSelection.item
+    setPendingSelection(null)
+    sendSelectionAction('PLACE_ORDER', item)
+  }
+
+  async function sendSelectionAction(selectedAction, item) {
+    if (!signedIn) {
+      setStatus('Sign in to place an order.')
+      return
+    }
+    setOpen(true)
+    setStatus('')
+    setDraft('')
+    setIsSending(true)
+    try {
+      const response = await api.chatAssistant(session.token, {
+        message: '',
+        selectedAction,
+        selectedSku: item.sku,
+        selectedItemName: item.itemName,
+      })
+      setMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          text: response.reply || 'I found something useful.',
+          items: response.items || [],
+          orders: response.orders || [],
+          actions: response.actions || [],
+          requiresSignIn: Boolean(response.requiresSignIn),
+          intent: response.intent || '',
+          state: response.state || '',
+          resolvedQuery: response.resolvedQuery || '',
+          orderNumber: response.orderNumber || '',
+          orderStatus: response.orderStatus || '',
+          cartItemCount: response.cartItemCount,
+          checkoutUrl: response.checkoutUrl || '',
+        },
+      ])
+    } catch (error) {
+      setMessages((current) => [...current, { role: 'assistant', text: error.message || 'The assistant could not respond right now.' }])
+    } finally {
+      setIsSending(false)
+    }
   }
 
   function handleSubmit(event) {
@@ -159,7 +218,7 @@ export function ShoppingAssistantChat() {
         <span className="assistant-chat-toggle-icon">AI</span>
         <span>
           <strong>{title}</strong>
-          <small>{open ? 'Search products or place orders' : 'Ask for products or checkout help'}</small>
+          <small>{open ? 'Search products or check orders' : 'Ask for products or order help'}</small>
         </span>
       </button>
 
@@ -221,11 +280,29 @@ export function ShoppingAssistantChat() {
             ))}
           </div>
 
+          {pendingSelection?.item ? (
+            <div className="assistant-selection-panel assistant-selection-panel-bottom">
+              <div className="assistant-selection-copy">
+                <p className="eyebrow">Selected product</p>
+                <strong>{pendingSelection.item.itemName}</strong>
+                <span className="muted">{pendingSelection.item.brand || pendingSelection.item.category || pendingSelection.item.sku}</span>
+              </div>
+              <div className="assistant-quick-prompts assistant-choice-row">
+                <button className="assistant-chip" type="button" onClick={addSelectedToCart}>
+                  Add to cart
+                </button>
+                <button className="assistant-chip" type="button" onClick={placeSelectedOrder}>
+                  Place order
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <form className="assistant-chat-form" onSubmit={handleSubmit}>
             <input
-              type="text"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+            type="text"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
               placeholder={signedIn ? 'Ask about products, orders, or cart updates' : 'Ask a product question or sign in for cart and order help'}
             />
             <button className="primary-button" type="submit" disabled={isSending}>

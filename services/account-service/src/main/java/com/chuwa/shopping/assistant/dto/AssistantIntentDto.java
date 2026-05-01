@@ -3,11 +3,15 @@ package com.chuwa.shopping.assistant.dto;
 public class AssistantIntentDto {
 
     private String intent;
-    private String query;
+    private String productName;
+    private String searchQuery;
     private String sku;
     private Integer quantity;
     private String category;
     private String orderNumber;
+    private String startDate;
+    private String endDate;
+    private Boolean browseAll;
 
     public String getIntent() {
         return intent;
@@ -17,12 +21,20 @@ public class AssistantIntentDto {
         this.intent = intent;
     }
 
-    public String getQuery() {
-        return query;
+    public String getProductName() {
+        return productName;
     }
 
-    public void setQuery(String query) {
-        this.query = query;
+    public void setProductName(String productName) {
+        this.productName = productName;
+    }
+
+    public String getSearchQuery() {
+        return searchQuery;
+    }
+
+    public void setSearchQuery(String searchQuery) {
+        this.searchQuery = searchQuery;
     }
 
     public String getSku() {
@@ -55,5 +67,29 @@ public class AssistantIntentDto {
 
     public void setOrderNumber(String orderNumber) {
         this.orderNumber = orderNumber;
+    }
+
+    public String getStartDate() {
+        return startDate;
+    }
+
+    public void setStartDate(String startDate) {
+        this.startDate = startDate;
+    }
+
+    public String getEndDate() {
+        return endDate;
+    }
+
+    public void setEndDate(String endDate) {
+        this.endDate = endDate;
+    }
+
+    public Boolean getBrowseAll() {
+        return browseAll;
+    }
+
+    public void setBrowseAll(Boolean browseAll) {
+        this.browseAll = browseAll;
     }
 }

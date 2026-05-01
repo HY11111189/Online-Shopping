@@ -294,11 +294,9 @@ export function CheckoutPage() {
       customerId: session.customerId,
       currencyCode: 'USD',
       taxAmount: '0.00',
-      shippingAmount: shippingCost.toFixed(2),
       shippingAddress: shippingItems.length ? addressFromAccount(selectedShippingAddress, account?.phoneNumber) : null,
       billingAddress: addressFromAccount(selectedBillingAddress, account?.phoneNumber),
       paymentMethod: selectedPayment?.paymentMethodType || 'CREDIT_CARD',
-      discountAmount: '0.00',
       items: items.map((item) => ({
         itemId: item.itemId,
         sku: item.sku,

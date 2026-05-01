@@ -1,6 +1,5 @@
 # Overview
 The project is split into separate Spring Boot services so each part of the store has a clear boundary:
-
 - `account-service` handles accounts, authentication, and user profile data
 - `item-service` handles catalog data, product search, and inventory
 - `order-service` handles cart and order lifecycle
@@ -15,7 +14,6 @@ Each service owns its own code and data. Services talk to each other over HTTP/F
 - `account-service`
   - account APIs
   - sign in / sign up
-  - frontend static pages
 - `item-service`
   - item metadata
   - inventory
@@ -41,7 +39,7 @@ Each service owns its own code and data. Services talk to each other over HTTP/F
 - gateway-service: `8080`
 
 
-# Database Split
+# Database 
 Each business service uses its own database so the data model stays isolated:
 - `account-service` uses `MySQL`
   - user accounts
@@ -99,6 +97,7 @@ This means:
 - `shared-lib` is for Feign contracts and shared error types only.
 - Business entities, repositories, and service-internal request payloads do not go into `shared-lib`.
 
+
 # API Contract
 The app exposes REST JSON APIs through the gateway on `http://localhost:8080`.
 
@@ -153,6 +152,7 @@ General rules:
 - payment APIs return payment DTOs
 - assistant chat returns a structured assistant response with reply text, items, actions, and optional order metadata
 
+
 # Spring Security and Auth
 - `account-service` is the authentication server for the whole app.
 - When a user signs in, it checks the username and password, then returns a signed JWT bearer token.
@@ -173,7 +173,8 @@ Helper or optional files:
 - `KeyInfoController` exposes key metadata and public-key info for debugging
 - `OAuth2UserController` shows token/user details for debugging
 
-The core auth flow is sign-in, token issuance, and JWT validation. The helper controllers are not required for normal app usage.
+The core auth flow is sign-in, token issuance, and JWT validation. 
+The helper controllers are not required for normal app usage.
 
 
 # Checkout Workflow (using Kafka) and Checkout Reliability
@@ -206,7 +207,6 @@ Recovery and compensation:
 - If payment is captured but the order sync still fails, the saved payment state lets the next retry continue from the same payment record instead of charging again.
 
 
-
 # Product Search
 - Category browsing loads directly from MongoDB.
 - Text search uses Elasticsearch.
@@ -222,191 +222,161 @@ Key documents:
 - `ItemElasticsearchConfig` and `ItemSearchConfig` enable and initialize search support.
 
 
-# One-Click Startup
-
-```bash
-cd services
-docker-compose -f docker-compose.yml up --build
-```
-
-Or:
-
-```bash
-cd services
-sh start-all.sh
-```
-
-This starts:
-
-- MySQL for account and payment
-- MongoDB for item
-- Cassandra for order
-- Kafka for payment/order asynchronous events
-- account, item, order, payment, and gateway services
-
-Recommended browser entrypoint:
-
-- `http://localhost:8080`
-
-# Local Dev Loop
-
-Use this when you want to change code and retest without rebuilding Docker images.
-
-All Maven commands below must be run from the `services/` directory:
-
-```bash
-cd springboot-shopping/services
-```
-
-Bootstrap the shared module once before running any service:
-
-```bash
-sh bootstrap-local.sh
-```
-
-Start only the infrastructure once:
-
-```bash
-cd services
-sh start-infra.sh
-```
-
-This script first removes any old compose containers for the infra services, then recreates them.
-It also waits until MySQL, MongoDB, Cassandra, and Kafka are reachable before returning.
-
-If you want to clean everything manually first, run:
-
-```bash
-cd services
-sh cleanup-infra.sh
-```
-
-Then run the services from source in separate terminals:
-
-```bash
-cd services
-sh scripts/run-service.sh account-service
-```
-
-```bash
-cd services
-sh scripts/run-service.sh item-service
-```
-
-```bash
-cd services
-sh scripts/run-service.sh order-service
-```
-
-```bash
-cd services
-sh scripts/run-service.sh payment-service
-```
-
-If you want the browser entrypoint, also run:
-
-```bash
-cd services
-sh scripts/run-service.sh gateway-service
-```
-
-Notes:
-
-- The services already default to `localhost` ports in their `application.properties`.
-- You only need to restart the service you changed.
-- If you change `shared-lib`, restart the services that depend on it.
-- If `shared-lib` changes, rerun `sh bootstrap-local.sh` before starting services again.
-- `sh scripts/run-service.sh <service-dir>` loads `services/.env.local` automatically before running Maven.
-- Kafka uses `localhost:29092` when services run from source, and `kafka:9092` when services run in Docker.
-- Use `http://localhost:8080` for the gateway or `http://localhost:8081` through `http://localhost:8084` for direct service testing.
-
-
-
 # Shopping Assistant
-
 The home page includes a shopping assistant chat widget.
 
 What it can do:
-
 - search products
-- add products to cart
-- place an order when the user is signed in and has the required account data
+- place an order after the user picks a product
+- look up orders by date range or order number
 
-Where the OpenAI key goes:
+Flow:
+1. The user sends a message in the chat widget.
+2. The frontend sends `POST /api/v1/shopping/assistant/chat` to the gateway.
+3. `account-service` asks OpenAI to classify intent and extract fields.
+4. The backend uses the returned JSON to decide which service API to cal, turns it into the right service call, and gets the result.
+5. The backend builds assistant response JSON and sends it back.
+6. The frontend renders that response and the action buttons.
 
-- copy [`.env.local.example`](/Users/hhhhh1/Desktop/Training/Project/springboot-shopping/services/.env.local.example) to `.env.local` in `services/`
-- set `OPENAI_API_KEY` there once for this project
-- `scripts/start-all.sh`, `scripts/start-infra.sh`, and `scripts/bootstrap-local.sh` load that file automatically
-- optional override: `SHOPPING_ASSISTANT_MODEL` (default: `gpt-5.1`)
-- IntelliJ Spring Boot runs also pick up `services/.env.local` through `LocalEnvPropertySourceConfig`
-- the frontend never talks to OpenAI directly
-
-If `OPENAI_API_KEY` is missing, the backend returns an error instead of silently falling back.
-That makes setup problems obvious while you are testing the assistant.
-
-Request flow:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant U as User
-    participant F as Frontend chat widget
-    participant G as Gateway
-    participant A as Account Service
-    participant I as Item Service
-    participant O as Order Service
-    participant M as OpenAI API
-
-    U->>F: Type request
-    F->>G: POST /api/v1/shopping/assistant/chat
-    G->>A: Forward request
-    A->>A: Detect intent
-
-    alt OPENAI_API_KEY configured
-        A->>M: Classify message / extract intent
-        M-->>A: Intent payload
-    else OPENAI_API_KEY missing
-        A->>A: Use local keyword routing
-    end
-
-    alt Search products
-        A->>I: GET /api/v1/shopping/items/search
-        I-->>A: Matching items
-        A-->>G: Assistant response with items and actions
-    else Add to cart
-        A->>I: GET /api/v1/shopping/items/sku/{sku}
-        I-->>A: Catalog item
-        A->>O: POST /api/v1/shopping/carts/{customerId}/items
-        O-->>A: Updated cart
-        A-->>G: Assistant response with cart confirmation
-    else Place order
-        A->>A: Load account, address, payment method
-        A->>O: POST /api/v1/shopping/orders
-        O-->>A: Created order
-        A-->>G: Assistant response with order number and link
-    else General help
-        A-->>G: Assistant response with suggestions
-    end
-
-    G-->>F: JSON response
-    F-->>U: Render chat reply, product cards, and actions
+Example:
+```json
+{
+  "intent": "SEARCH_PRODUCTS",
+  "productName": "coffee maker",
+  "searchQuery": "coffee maker",
+  "sku": "",
+  "quantity": 1,
+  "category": "",
+  "orderNumber": "",
+  "startDate": "",
+  "endDate": "",
+  "browseAll": false
+}
 ```
 
-API contract:
+Backend turns that into:
+```http
+GET /api/v1/shopping/items/search?q=coffee%20maker&limit=4
+```
 
+```json
+{
+  "intent": "PLACE_ORDER",
+  "productName": "medicine",
+  "searchQuery": "medicine",
+  "sku": "",
+  "quantity": 1,
+  "category": "",
+  "orderNumber": "",
+  "startDate": "",
+  "endDate": "",
+  "browseAll": false
+}
+```
+
+Backend turns that into:
+```http
+POST /api/v1/shopping/orders
+```
+
+```json
+{
+  "intent": "LOOKUP_ORDERS",
+  "productName": "",
+  "searchQuery": "",
+  "sku": "",
+  "quantity": 1,
+  "category": "",
+  "orderNumber": "",
+  "startDate": "2026-04-30",
+  "endDate": "2026-05-01",
+  "browseAll": false
+}
+```
+
+Backend turns that into:
+```http
+GET /api/v1/shopping/orders/customers/{customerId}
+```
+Then it filters the returned orders by `createdAt` using the date range from the AI JSON.
+
+API contract:
 - request: `POST /api/v1/shopping/assistant/chat`
 - body: `{ "message": "find me a coffee maker" }`
 - response fields:
   - `intent`
   - `reply`
   - `requiresSignIn`
+  - `state`
+  - `items`
+  - `orders`
+  - `actions`
   - `orderNumber`
   - `checkoutUrl`
-  - `items`
-  - `actions`
 
-Important note:
+Examples:
+```json
+{
+  "intent": "SEARCH_PRODUCTS",
+  "reply": "I found 3 products for \"coffee maker\". Pick one and I can add it to your cart or place the order.",
+  "state": "choose_product",
+  "items": [{ "sku": "SKU-101", "itemName": "Coffee Maker" }],
+  "actions": [{ "label": "Browse all products", "href": "/index.html", "type": "navigate" }]
+}
+```
 
-- the assistant does not replace the normal catalog search endpoint
-- product lookup still uses the existing item-service search APIs
-- OpenAI is only used to interpret the user's intent, not to fetch product data
+```json
+{
+  "intent": "PLACE_ORDER",
+  "reply": "Your order was placed and payment was captured.",
+  "state": "processing",
+  "orderNumber": "ORD-1234ABCD",
+  "checkoutUrl": "/order-status.html?orderNumber=ORD-1234ABCD"
+}
+```
+
+```json
+{
+  "intent": "LOOKUP_ORDERS",
+  "reply": "Here are the matching orders from your account.",
+  "state": "success",
+  "orders": [{ "orderNumber": "ORD-1234ABCD", "status": "PAID" }]
+}
+```
+
+
+# Local Dev Loop
+Use this when you want to change code without rebuilding Docker images:
+
+```bash
+cd services
+sh bootstrap-local.sh
+sh start-infra.sh
+sh scripts/run-service.sh account-service
+sh scripts/run-service.sh item-service
+sh scripts/run-service.sh order-service
+sh scripts/run-service.sh payment-service
+sh scripts/run-service.sh gateway-service
+```
+
+Notes:
+- rerun `bootstrap-local.sh` after `shared-lib` changes
+- direct service ports are `8081` to `8084`
+- use `http://localhost:8080` for the gateway
+
+
+# One-Click Startup
+Run the full stack with:
+
+```bash
+cd services
+sh start-all.sh
+```
+
+Or use Docker Compose directly:
+```bash
+cd services
+docker-compose -f docker-compose.yml up --build
+```
+
+Open `http://localhost:8080` in the browser.

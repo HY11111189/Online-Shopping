@@ -3,7 +3,6 @@ package com.chuwa.shopping.assistant.service;
 import com.chuwa.shopping.account.dto.AccountDto;
 import com.chuwa.shopping.account.dto.AddressDto;
 import com.chuwa.shopping.account.dto.StoredPaymentMethodDto;
-import com.chuwa.shopping.account.entity.MembershipLevel;
 import com.chuwa.shopping.account.service.AccountService;
 import com.chuwa.shopping.assistant.dto.AssistantIntentDto;
 import com.chuwa.shopping.assistant.dto.ShoppingAssistantActionDto;
@@ -38,6 +37,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -54,18 +56,27 @@ import org.slf4j.LoggerFactory;
 @Service
 public class ShoppingAssistantService {
 
+    /**
+     * Shopping assistant pipeline:
+     * 1. Accept a chat message or a clicked product/action card.
+     * 2. Ask OpenAI for a structured classification JSON.
+     * 3. Turn that JSON into the real item/order/account service call.
+     * 4. Wait for the service result.
+     * 5. Build a response JSON for the frontend to render.
+     *
+     * The model only classifies. The service owns the business flow.
+     */
+
     private static final Logger log = LoggerFactory.getLogger(ShoppingAssistantService.class);
     private static final String DEFAULT_OPENAI_MODEL = "gpt-5.1";
 
     private static final List<String> SUPPORTED_INTENTS = List.of(
             "SEARCH_PRODUCTS",
-            "ADD_TO_CART",
             "PLACE_ORDER",
             "LOOKUP_ORDERS",
             "GENERAL_HELP"
     );
     private static final Pattern ORDER_NUMBER_PATTERN = Pattern.compile("(ORD-[A-Z0-9]{8,})", Pattern.CASE_INSENSITIVE);
-    private static final Pattern DAY_WINDOW_PATTERN = Pattern.compile("(?:within|last|past)\\s+(\\d+)\\s+day", Pattern.CASE_INSENSITIVE);
 
     private final AccountService accountService;
     private final ObjectMapper objectMapper;
@@ -92,6 +103,12 @@ public class ShoppingAssistantService {
     }
 
     public ShoppingAssistantResponseDto chat(ShoppingAssistantRequestDto requestDto, Authentication authentication) {
+        // Main entry point from the chat widget.
+        // A clicked product/action card is handled first because it already contains
+        // a structured SKU and action, so we do not need to re-classify the text.
+        if (hasDirectSelection(requestDto)) {
+            return handleDirectSelection(requestDto, authentication);
+        }
         String userMessage = requestDto == null || requestDto.getMessage() == null ? "" : requestDto.getMessage().trim();
         ShoppingAssistantResponseDto emptyResponse = new ShoppingAssistantResponseDto();
         if (userMessage.isBlank()) {
@@ -107,9 +124,7 @@ public class ShoppingAssistantService {
 
         switch (resolvedIntent) {
             case "PLACE_ORDER":
-                return placeOrder(intent, userMessage, authentication);
-            case "ADD_TO_CART":
-                return addToCart(intent, userMessage, authentication);
+                return placeOrder(intent, authentication, false);
             case "SEARCH_PRODUCTS":
                 return searchProducts(intent, userMessage);
             case "LOOKUP_ORDERS":
@@ -119,7 +134,39 @@ public class ShoppingAssistantService {
         }
     }
 
+    private boolean hasDirectSelection(ShoppingAssistantRequestDto requestDto) {
+        if (requestDto == null) {
+            return false;
+        }
+        String action = requestDto.getSelectedAction();
+        String sku = requestDto.getSelectedSku();
+        return action != null && !action.isBlank() && sku != null && !sku.isBlank();
+    }
+
+    private ShoppingAssistantResponseDto handleDirectSelection(ShoppingAssistantRequestDto requestDto, Authentication authentication) {
+        // Direct-selection requests come from the product cards.
+        // They already tell us which SKU the user picked and which action to take.
+        // That lets the backend skip OpenAI and jump straight into the chosen flow.
+        AssistantIntentDto intent = new AssistantIntentDto();
+        intent.setSku(requestDto.getSelectedSku());
+        intent.setProductName(firstNonBlank(requestDto.getSelectedItemName(), requestDto.getSelectedSku()));
+        intent.setSearchQuery(requestDto.getSelectedSku());
+        intent.setQuantity(1);
+        intent.setBrowseAll(false);
+        String action = requestDto.getSelectedAction().trim().toUpperCase(Locale.ROOT);
+        if ("ADD_TO_CART".equals(action)) {
+            throw new IllegalStateException("Unsupported assistant action: " + requestDto.getSelectedAction());
+        }
+        if ("PLACE_ORDER".equals(action)) {
+            intent.setIntent("PLACE_ORDER");
+            return placeOrder(intent, authentication, true);
+        }
+        throw new IllegalStateException("Unsupported assistant action: " + requestDto.getSelectedAction());
+    }
+
     private AssistantIntentDto classifyIntent(String userMessage, Authentication authentication) {
+        // Ask OpenAI for classification JSON only.
+        // The returned JSON is the assistant's internal routing hint, not a service request.
         if (openAiApiKey == null || openAiApiKey.isBlank()) {
             throw new IllegalStateException("OPENAI_API_KEY is not configured for shopping assistant classification");
         }
@@ -142,23 +189,30 @@ public class ShoppingAssistantService {
         intentSchema.put("type", "string");
         intentSchema.putArray("enum")
                 .add("SEARCH_PRODUCTS")
-                .add("ADD_TO_CART")
                 .add("PLACE_ORDER")
                 .add("LOOKUP_ORDERS")
                 .add("GENERAL_HELP");
-        properties.putObject("query").put("type", "string");
+        properties.putObject("productName").put("type", "string");
+        properties.putObject("searchQuery").put("type", "string");
         properties.putObject("sku").put("type", "string");
         properties.putObject("category").put("type", "string");
         properties.putObject("quantity").put("type", "integer");
         properties.putObject("orderNumber").put("type", "string");
+        properties.putObject("startDate").put("type", "string");
+        properties.putObject("endDate").put("type", "string");
+        properties.putObject("browseAll").put("type", "boolean");
 
         schema.putArray("required")
                 .add("intent")
-                .add("query")
+                .add("productName")
+                .add("searchQuery")
                 .add("sku")
                 .add("category")
                 .add("quantity")
-                .add("orderNumber");
+                .add("orderNumber")
+                .add("startDate")
+                .add("endDate")
+                .add("browseAll");
         schema.put("additionalProperties", false);
 
         try {
@@ -167,10 +221,12 @@ public class ShoppingAssistantService {
             if (textOutput == null || textOutput.isBlank()) {
                 throw new IllegalStateException("OpenAI assistant classification returned an empty response");
             }
+            log.info("assistant classification raw JSON: {}", textOutput);
             AssistantIntentDto intent = objectMapper.readValue(textOutput, AssistantIntentDto.class);
             if (intent.getIntent() == null || intent.getIntent().isBlank()) {
                 throw new IllegalStateException("OpenAI assistant classification returned no intent");
             }
+            log.info("assistant classification parsed intent: {}", objectMapper.writeValueAsString(intent));
             return intent;
         } catch (Exception ex) {
             throw new IllegalStateException("OpenAI assistant classification failed: " + rootCauseMessage(ex), ex);
@@ -189,43 +245,77 @@ public class ShoppingAssistantService {
     }
 
     private String buildAssistantInstructions(Authentication authentication) {
+        // Prompt rules:
+        // - classify into the supported intents
+        // - extract only simple fields like product, sku, order number, and date range
+        // - never invent API paths or backend behavior
+        String today = LocalDate.now(ZoneId.systemDefault()).toString();
+        String monthStart = LocalDate.now(ZoneId.systemDefault()).withDayOfMonth(1).toString();
+        String nextMonthStart = LocalDate.now(ZoneId.systemDefault()).withDayOfMonth(1).plusMonths(1).toString();
+        String weekStart = LocalDate.now(ZoneId.systemDefault()).with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY)).toString();
+        String nextWeekStart = LocalDate.now(ZoneId.systemDefault()).with(TemporalAdjusters.next(java.time.DayOfWeek.MONDAY)).toString();
         String userContext = isAuthenticated(authentication)
                 ? "The shopper is signed in and may ask you to browse products, add items to cart, place an order, or look up orders."
                 : "The shopper is not signed in. Search and browse requests are allowed, but cart, checkout, and order lookup actions require sign-in.";
         return "You are a shopping assistant for an online store. " + userContext + " "
-                + "Return only JSON that matches the schema. "
-                + "Use intent SEARCH_PRODUCTS for product browsing, category browsing, deal browsing, or product lookup requests. "
-                + "Use intent ADD_TO_CART for cart requests. "
-                + "Use intent PLACE_ORDER for checkout requests, including messages like buy this, order this, or place my order. "
-                + "Use intent LOOKUP_ORDERS for order history or order status requests. "
-                + "Use intent GENERAL_HELP for everything else. "
+                + "Today is " + today + " in the shopper's local timezone. "
+                + "Return only JSON that matches the schema. The backend will parse this JSON and map it into internal request objects. "
+                + "Use only these intents: SEARCH_PRODUCTS, PLACE_ORDER, LOOKUP_ORDERS, and GENERAL_HELP. "
+                + "Use SEARCH_PRODUCTS only when the shopper is asking to find, browse, show, or look at products and has not clearly asked to buy or add to cart. "
+                + "Use PLACE_ORDER only when the shopper clearly wants to buy, order, checkout, or purchase an item. "
+                + "If the message contains buy, order, purchase, checkout, or place my order, classify it as PLACE_ORDER, not SEARCH_PRODUCTS. "
+                + "Use LOOKUP_ORDERS only when the shopper asks about order history, order status, or orders placed on a date or within a date range. "
+                + "Use GENERAL_HELP only when none of the above intents fit. "
                 + "Use empty strings for unknown text fields. Use quantity 1 when not specified. "
-                + "If the user asks for all products or general browsing, leave query blank unless a category is clearly named. "
-                + "If the user mentions a product name, put the best search terms in query. "
+                + "Set productName to the product words only, not the whole user sentence. "
+                + "Set searchQuery to short product search terms only. "
+                + "If the user asks for all products or general browsing, set browseAll to true and leave productName and searchQuery blank unless a category is clearly named. "
+                + "If the user mentions a product category, fill category with the category words only. "
                 + "If the user mentions a SKU, put it in sku. "
-                + "If the user mentions an order number, put it in orderNumber.";
+                + "If the user mentions an order number, put it in orderNumber. "
+                + "For LOOKUP_ORDERS, always return startDate and endDate as ISO-8601 date strings. "
+                + "The backend will use startDate inclusive and endDate exclusive, so endDate should be the day after the last day to include. "
+                + "The examples below show how to encode today, yesterday, this week, this month, last 7 days, and a specific day. "
+                + "Example JSON for 'buy me some medicine': "
+                + "{\"intent\":\"PLACE_ORDER\",\"productName\":\"medicine\",\"searchQuery\":\"medicine\",\"sku\":\"\",\"category\":\"\",\"quantity\":1,\"orderNumber\":\"\",\"startDate\":\"\",\"endDate\":\"\",\"browseAll\":false}. "
+                + "Example JSON for 'find me some fruits': "
+                + "{\"intent\":\"SEARCH_PRODUCTS\",\"productName\":\"fruits\",\"searchQuery\":\"fruits\",\"sku\":\"\",\"category\":\"\",\"quantity\":1,\"orderNumber\":\"\",\"startDate\":\"\",\"endDate\":\"\",\"browseAll\":false}. "
+                + "Example JSON for 'show me orders I placed this week': "
+                + "{\"intent\":\"LOOKUP_ORDERS\",\"productName\":\"\",\"searchQuery\":\"\",\"sku\":\"\",\"category\":\"\",\"quantity\":1,\"orderNumber\":\"\",\"startDate\":\"2026-04-27\",\"endDate\":\"2026-05-04\",\"browseAll\":false}. "
+                + "Example JSON for 'show me orders I placed this month': "
+                + "{\"intent\":\"LOOKUP_ORDERS\",\"productName\":\"\",\"searchQuery\":\"\",\"sku\":\"\",\"category\":\"\",\"quantity\":1,\"orderNumber\":\"\",\"startDate\":\"" + monthStart + "\",\"endDate\":\"" + nextMonthStart + "\",\"browseAll\":false}. "
+                + "Example JSON for 'show me orders I placed this week': "
+                + "{\"intent\":\"LOOKUP_ORDERS\",\"productName\":\"\",\"searchQuery\":\"\",\"sku\":\"\",\"category\":\"\",\"quantity\":1,\"orderNumber\":\"\",\"startDate\":\"" + weekStart + "\",\"endDate\":\"" + nextWeekStart + "\",\"browseAll\":false}. "
+                + "Example JSON for 'show me orders I placed yesterday': "
+                + "{\"intent\":\"LOOKUP_ORDERS\",\"productName\":\"\",\"searchQuery\":\"\",\"sku\":\"\",\"category\":\"\",\"quantity\":1,\"orderNumber\":\"\",\"startDate\":\"2026-04-30\",\"endDate\":\"2026-05-01\",\"browseAll\":false}. "
+                + "Example JSON for 'orders I placed on April 30': "
+                + "{\"intent\":\"LOOKUP_ORDERS\",\"productName\":\"\",\"searchQuery\":\"\",\"sku\":\"\",\"category\":\"\",\"quantity\":1,\"orderNumber\":\"\",\"startDate\":\"2026-04-30\",\"endDate\":\"2026-05-01\",\"browseAll\":false}.";
     }
 
     private ShoppingAssistantResponseDto searchProducts(AssistantIntentDto intent, String fallbackQuery) {
-        String query = normalizeProductQuery(firstNonBlank(intent.getQuery(), fallbackQuery));
+        // Search flow:
+        // 1) use the AI fields to decide whether this is a text search, category browse, or browse-all request
+        // 2) call item-service to get matching products
+        // 3) return product cards so the user can optionally continue with cart or order actions
+        String query = assistantSearchQuery(intent);
         String category = normalizeCategory(intent.getCategory());
         List<ItemDto> matches;
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent("SEARCH_PRODUCTS");
-        response.setState("success");
+        response.setState("choose_product");
         response.setResolvedQuery(query);
 
-        if (isBrowseAllRequest(fallbackQuery, intent)) {
-            matches = loadAllItems(6);
+        if (isBrowseAllRequest(intent)) {
+            matches = loadAllItems(5);
             response.setReply(matches.isEmpty()
                     ? "I couldn't load products right now."
-                    : "Here are products from across the store.");
+                    : "Here are products from across the store. Pick one and I can add it to your cart or place the order.");
             response.getActions().add(action("Browse all products", "/index.html", "navigate"));
         } else if (!category.isBlank() && query.isBlank()) {
             matches = loadItemsByCategory(category, 4);
             response.setReply(matches.isEmpty()
                     ? "I couldn't find products in " + category + "."
-                    : "Here are products in " + category + ".");
+                    : "Here are products in " + category + ". Pick one and tell me whether you want it in your cart or ordered now.");
             response.getActions().add(action("Open " + category, "/index.html?category=" + urlEncode(category), "navigate"));
         } else {
             try {
@@ -234,8 +324,8 @@ public class ShoppingAssistantService {
                 matches = new ArrayList<>();
             }
             response.setReply(matches.isEmpty()
-                    ? "I could not find matching products for \"" + firstNonBlank(query, fallbackQuery) + "\". Try a different search term or browse a category."
-                    : "I found " + matches.size() + " product" + (matches.size() == 1 ? "" : "s") + " for \"" + firstNonBlank(query, fallbackQuery) + "\".");
+                    ? "I could not find matching products for \"" + displaySearchLabel(intent, query, category) + "\". Try a different search term or browse a category."
+                    : "I found " + matches.size() + " product" + (matches.size() == 1 ? "" : "s") + " for \"" + displaySearchLabel(intent, query, category) + "\". Pick one and I can add it to your cart or place the order.");
             if (!query.isBlank()) {
                 response.getActions().add(action("Open search results", "/index.html?q=" + urlEncode(query), "navigate"));
             }
@@ -250,7 +340,9 @@ public class ShoppingAssistantService {
         return response;
     }
 
-    private ShoppingAssistantResponseDto addToCart(AssistantIntentDto intent, String fallbackQuery, Authentication authentication) {
+    private ShoppingAssistantResponseDto addToCart(AssistantIntentDto intent, Authentication authentication) {
+        // Cart flow:
+        // resolve one product, push it to order-service, then return a cart confirmation.
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent("ADD_TO_CART");
         response.setState("success");
@@ -271,7 +363,7 @@ public class ShoppingAssistantService {
             return response;
         }
 
-        List<ItemDto> candidates = resolveProductCandidates(intent, fallbackQuery, 3);
+        List<ItemDto> candidates = resolveProductCandidates(intent, 3);
         if (candidates.isEmpty()) {
             response.setState("empty");
             response.setReply("I could not find that product to add it to your cart.");
@@ -306,10 +398,15 @@ public class ShoppingAssistantService {
         return response;
     }
 
-    private ShoppingAssistantResponseDto placeOrder(AssistantIntentDto intent, String fallbackQuery, Authentication authentication) {
+    private ShoppingAssistantResponseDto placeOrder(AssistantIntentDto intent, Authentication authentication, boolean confirmedSelection) {
+        // Order flow:
+        // 1) resolve the selected product
+        // 2) load the signed-in account details needed for checkout
+        // 3) build the order request for order-service
+        // 4) wait for the final order state before returning the assistant response
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent("PLACE_ORDER");
-        response.setState("success");
+        response.setState("choose_product");
         if (!isAuthenticated(authentication)) {
             response.setRequiresSignIn(true);
             response.setState("needs_sign_in");
@@ -327,41 +424,47 @@ public class ShoppingAssistantService {
             return response;
         }
 
-        boolean directProductOrder = hasProductRequest(intent, fallbackQuery);
-        ItemDto directOrderItem = null;
-        if (directProductOrder) {
-            List<ItemDto> candidates = resolveProductCandidates(intent, fallbackQuery, 3);
-            if (candidates.isEmpty()) {
-                response.setState("empty");
-                response.setReply("I could not find the product you wanted to order.");
-                response.getActions().add(action("Browse products", "/index.html", "navigate"));
-                return response;
-            }
-            if (candidates.size() > 1 && !hasSpecificSku(intent)) {
-                response.setState("clarification");
-                response.setReply("I found a few matches. Pick one and I can add it, then place the order.");
-                response.setItems(candidates.stream().map(this::toAssistantItem).collect(Collectors.toList()));
-                return response;
-            }
-            directOrderItem = candidates.get(0);
-            response.getItems().add(toAssistantItem(directOrderItem));
-        }
+        boolean productRequest = hasProductRequest(intent) || hasSpecificSku(intent);
+        List<ItemDto> candidates = resolveProductCandidates(intent, 4);
 
-        AccountDto account = accountService.getCurrentAccount(authentication.getName());
-        CartSnapshot cart = directProductOrder
-                ? singleItemCart(directOrderItem, resolveQuantity(intent))
-                : loadCart(customerId, token);
-        if (cart.items.isEmpty()) {
+        if (candidates.isEmpty()) {
+            if (!productRequest) {
+                List<ItemDto> browseMatches = loadAllItems(5);
+                if (browseMatches.isEmpty()) {
+                    response.setState("empty");
+                    response.setReply("I couldn't load products right now. Tell me what you'd like to buy.");
+                    response.getActions().add(action("Browse products", "/index.html", "navigate"));
+                    return response;
+                }
+                response.setReply("Pick a product and I can buy it for you.");
+                response.setItems(browseMatches.stream().map(this::toAssistantItem).collect(Collectors.toList()));
+                response.getActions().add(action("Browse all products", "/index.html", "navigate"));
+                return response;
+            }
             response.setState("empty");
-            response.setReply("Your cart is empty. Add a few items and I can place the order.");
+            response.setReply("I could not find the product you wanted to buy.");
             response.getActions().add(action("Browse products", "/index.html", "navigate"));
             return response;
         }
 
+        if (!confirmedSelection) {
+            response.setReply(candidates.size() == 1
+                    ? "I found one match. Click Buy this to place it now."
+                    : "I found a few matches. Pick one and click Buy this to place it now.");
+            response.setItems(candidates.stream().map(this::toAssistantItem).collect(Collectors.toList()));
+            response.getActions().add(action("Browse products", "/index.html", "navigate"));
+            return response;
+        }
+
+        ItemDto directOrderItem = candidates.get(0);
+        response.getItems().add(toAssistantItem(directOrderItem));
+
+        AccountDto account = accountService.getCurrentAccount(authentication.getName());
+        CartSnapshot cart = singleItemCart(directOrderItem, resolveQuantity(intent));
         AddressSnapshotDto shippingAddress = selectAddress(account);
         if (shippingAddress == null) {
             response.setState("needs_account_setup");
-            response.setReply("I found items in your cart, but you need a saved shipping address before I can place the order.");
+            response.setReply("You need a saved shipping address before I can place the order.");
             response.getActions().add(action("Update account", "/account.html", "navigate"));
             return response;
         }
@@ -369,24 +472,15 @@ public class ShoppingAssistantService {
         StoredPaymentMethodDto paymentMethod = selectPaymentMethod(account);
         if (paymentMethod == null) {
             response.setState("needs_account_setup");
-            response.setReply("I found items in your cart, but you need a saved payment method before I can place the order.");
+            response.setReply("You need a saved payment method before I can place the order.");
             response.getActions().add(action("Update account", "/account.html", "navigate"));
             return response;
         }
-
-        BigDecimal subtotal = cart.items.stream()
-                .map(item -> item.getLineTotal() == null && item.getUnitPrice() != null && item.getQuantity() != null
-                        ? item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()))
-                        : defaultMoney(item.getLineTotal()))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal shippingAmount = calculateShippingAmount(account, cart.items, subtotal);
 
         ObjectNode request = objectMapper.createObjectNode();
         request.put("customerId", customerId);
         request.put("currencyCode", firstNonBlank(cart.currencyCode, "USD"));
         request.put("taxAmount", "0.00");
-        request.put("shippingAmount", shippingAmount.toPlainString());
-        request.put("discountAmount", "0.00");
         request.put("createRequestId", "assistant-order-" + System.currentTimeMillis());
         request.putPOJO("shippingAddress", shippingAddress);
         request.putPOJO("billingAddress", shippingAddress);
@@ -412,9 +506,6 @@ public class ShoppingAssistantService {
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to place order", ex);
         }
-        if (!directProductOrder) {
-            clearCart(customerId, token, cart.items);
-        }
 
         OrderDto latestOrder = waitForLatestOrderState(order.getOrderNumber(), token);
 
@@ -437,6 +528,11 @@ public class ShoppingAssistantService {
     }
 
     private ShoppingAssistantResponseDto lookupOrders(AssistantIntentDto intent, String userMessage, Authentication authentication) {
+        // Order lookup flow:
+        // 1) require sign-in
+        // 2) load the customer's orders from order-service
+        // 3) filter by exact order number or the AI-provided date range
+        // 4) return matching order cards for the frontend
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent("LOOKUP_ORDERS");
         if (!isAuthenticated(authentication)) {
@@ -464,7 +560,9 @@ public class ShoppingAssistantService {
         }
 
         String requestedOrderNumber = firstNonBlank(intent.getOrderNumber(), extractOrderNumber(userMessage));
-        List<OrderDto> matches = filterOrders(orders, requestedOrderNumber, userMessage);
+        // The AI gives us a normalized date window.
+        // The backend applies that window to order.createdAt and then returns the matches.
+        List<OrderDto> matches = filterOrders(orders, intent, requestedOrderNumber, userMessage);
         response.setState("success");
         if (matches.isEmpty()) {
             response.setState("empty");
@@ -476,26 +574,31 @@ public class ShoppingAssistantService {
         }
 
         response.setOrders(matches.stream().map(this::toAssistantOrder).collect(Collectors.toList()));
-        OrderDto firstOrder = matches.get(0);
-        response.setOrderNumber(firstOrder.getOrderNumber());
-        response.setOrderStatus(firstOrder.getStatus() == null ? "" : firstOrder.getStatus().name());
-        response.setCheckoutUrl("/order-status.html?orderNumber=" + urlEncode(firstOrder.getOrderNumber()));
-        response.setReply(matches.size() == 1
-                ? "Here is the latest status for order " + firstOrder.getOrderNumber() + "."
-                : "Here are the matching orders from your account.");
+        if (matches.size() == 1) {
+            OrderDto firstOrder = matches.get(0);
+            response.setOrderNumber(firstOrder.getOrderNumber());
+            response.setOrderStatus(firstOrder.getStatus() == null ? "" : firstOrder.getStatus().name());
+            response.setCheckoutUrl("/order-status.html?orderNumber=" + urlEncode(firstOrder.getOrderNumber()));
+            response.setReply("Here is the latest status for order " + firstOrder.getOrderNumber() + ".");
+        } else {
+            response.setReply("Here are the matching orders from your account.");
+            if (matches.size() >= 10) {
+                response.getActions().add(action("Show more", "/account.html", "navigate"));
+            }
+        }
         response.getActions().add(action("View account", "/account.html", "navigate"));
-        response.getActions().add(action("Open order", response.getCheckoutUrl(), "navigate"));
         return response;
     }
 
     private ShoppingAssistantResponseDto generalHelp(String userMessage, AssistantIntentDto intent, Authentication authentication) {
+        // General help is the fallback when the message does not fit the product, order, or lookup flows.
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent("GENERAL_HELP");
         response.setState("idle");
         response.setReply(isAuthenticated(authentication)
                 ? "I can browse the full catalog, search products by name or category, add items to your cart, place an order, and look up your orders."
                 : "I can browse the full catalog and search products. Sign in if you want me to add to cart, place an order, or look up orders.");
-        String query = normalizeProductQuery(firstNonBlank(intent.getQuery(), userMessage));
+        String query = assistantSearchQuery(intent);
         List<ItemDto> matches = query.isBlank() ? loadAllItems(4) : searchItems(query, normalizeCategory(intent.getCategory()), 4);
         if (!matches.isEmpty()) {
             response.setItems(matches.stream().map(this::toAssistantItem).collect(Collectors.toList()));
@@ -511,6 +614,8 @@ public class ShoppingAssistantService {
     }
 
     private List<ItemDto> searchItems(String query, String category, int limit) {
+        // item-service owns product data and search behavior.
+        // The assistant only asks for matching items and then renders the results.
         try {
             StringBuilder url = new StringBuilder(itemServiceUrl("/api/v1/shopping/items/search"));
             url.append("?limit=").append(limit);
@@ -528,6 +633,7 @@ public class ShoppingAssistantService {
     }
 
     private List<ItemDto> loadAllItems(int limit) {
+        // Used for browse-all requests and general help suggestions.
         try {
             JsonNode node = readJson(sendRequest(itemServiceUrl("/api/v1/shopping/items"), null, "GET"));
             List<ItemDto> items = objectMapper.readValue(node.toString(), new TypeReference<List<ItemDto>>() {});
@@ -538,6 +644,7 @@ public class ShoppingAssistantService {
     }
 
     private List<ItemDto> loadItemsByCategory(String category, int limit) {
+        // Used when the AI identifies a category browse, like "toys" or "health".
         if (category == null || category.isBlank()) {
             return new ArrayList<>();
         }
@@ -578,6 +685,7 @@ public class ShoppingAssistantService {
     }
 
     private List<OrderDto> loadOrders(Long customerId, String token) {
+        // order-service returns the customer's orders; the assistant filters them locally.
         try {
             JsonNode node = readJson(sendRequest(orderServiceUrl("/api/v1/shopping/orders/customers/" + customerId), token, "GET"));
             List<OrderDto> orders = objectMapper.readValue(node.toString(), new TypeReference<List<OrderDto>>() {});
@@ -649,19 +757,8 @@ public class ShoppingAssistantService {
                 .orElse(null);
     }
 
-    private BigDecimal calculateShippingAmount(AccountDto account, List<CartItemSnapshot> items, BigDecimal subtotal) {
-        boolean hasShippingItems = items.stream().anyMatch(item -> item.getItemId() != null && item.getItemId().endsWith("::SHIPPING"));
-        if (!hasShippingItems) {
-            return BigDecimal.ZERO;
-        }
-        boolean premium = account != null && account.getMembershipLevel() == MembershipLevel.PREMIUM;
-        if (premium || subtotal.compareTo(new BigDecimal("35.00")) >= 0) {
-            return BigDecimal.ZERO;
-        }
-        return new BigDecimal("6.00");
-    }
-
     private ShoppingAssistantItemDto toAssistantItem(ItemDto item) {
+        // Convert the catalog item into the smaller card shape that the frontend renders.
         ShoppingAssistantItemDto assistantItem = new ShoppingAssistantItemDto();
         assistantItem.setSku(item.getSku());
         assistantItem.setItemName(item.getItemName());
@@ -677,6 +774,7 @@ public class ShoppingAssistantService {
     }
 
     private ShoppingAssistantActionDto action(String label, String href, String type) {
+        // Small helper for consistent assistant action buttons.
         ShoppingAssistantActionDto action = new ShoppingAssistantActionDto();
         action.setLabel(label);
         action.setHref(href);
@@ -711,6 +809,7 @@ public class ShoppingAssistantService {
     }
 
     private String normalizeIntent(AssistantIntentDto intentDto, String userMessage) {
+        // Validate that the model returned one of the supported intents.
         String intent = intentDto == null ? null : intentDto.getIntent();
         if (intent == null || intent.isBlank()) {
             throw new IllegalStateException("OpenAI assistant classification returned no intent");
@@ -718,21 +817,6 @@ public class ShoppingAssistantService {
         String normalized = intent.trim().toUpperCase(Locale.ROOT);
         if (!SUPPORTED_INTENTS.contains(normalized)) {
             throw new IllegalStateException("OpenAI assistant returned unsupported intent: " + intent);
-        }
-        String lower = userMessage == null ? "" : userMessage.toLowerCase(Locale.ROOT);
-        if ("GENERAL_HELP".equals(normalized)) {
-            if (containsAny(lower, "where is my order", "show my orders", "recent orders", "track order", "order status")) {
-                return "LOOKUP_ORDERS";
-            }
-            if (containsAny(lower, "add to cart", "add this", "put this in my cart")) {
-                return "ADD_TO_CART";
-            }
-            if (containsAny(lower, "buy ", "order this", "place my order", "checkout")) {
-                return "PLACE_ORDER";
-            }
-            if (containsAny(lower, "find ", "search ", "show ", "browse ", "look for")) {
-                return "SEARCH_PRODUCTS";
-            }
         }
         return normalized;
     }
@@ -885,14 +969,16 @@ public class ShoppingAssistantService {
         return amount == null ? BigDecimal.ZERO : amount;
     }
 
-    private List<ItemDto> resolveProductCandidates(AssistantIntentDto intent, String fallbackQuery, int limit) {
+    private List<ItemDto> resolveProductCandidates(AssistantIntentDto intent, int limit) {
+        // Resolve a concrete product candidate list from SKU, query, or category.
+        // This is used by both cart and order flows after the AI classification step.
         if (intent == null) {
             return new ArrayList<>();
         }
         if (hasSpecificSku(intent)) {
             return getItemBySku(intent.getSku()).map(Collections::singletonList).orElseGet(ArrayList::new);
         }
-        String query = normalizeProductQuery(firstNonBlank(intent.getQuery(), fallbackQuery));
+        String query = assistantSearchQuery(intent);
         String category = normalizeCategory(intent.getCategory());
         if (!query.isBlank()) {
             try {
@@ -914,22 +1000,12 @@ public class ShoppingAssistantService {
         return intent.getSku() != null && !intent.getSku().isBlank();
     }
 
-    private boolean hasProductRequest(AssistantIntentDto intent, String fallbackQuery) {
-        String normalizedQuery = normalizeProductQuery(firstNonBlank(intent.getQuery(), fallbackQuery));
+    private boolean hasProductRequest(AssistantIntentDto intent) {
+        String normalizedQuery = assistantSearchQuery(intent);
         String normalizedCategory = normalizeCategory(intent.getCategory());
-        boolean hasExplicitProduct = hasSpecificSku(intent)
+        return hasSpecificSku(intent)
                 || !normalizedQuery.isBlank()
                 || !normalizedCategory.isBlank();
-        if (hasExplicitProduct) {
-            return true;
-        }
-        String lower = firstNonBlank(fallbackQuery, "").toLowerCase(Locale.ROOT);
-        return !containsAny(lower,
-                "place my order",
-                "place the order",
-                "checkout my cart",
-                "check out my cart",
-                "order my cart");
     }
 
     private void addItemToCart(Long customerId, String token, ItemDto item, int quantity) {
@@ -945,6 +1021,8 @@ public class ShoppingAssistantService {
     }
 
     private OrderDto waitForLatestOrderState(String orderNumber, String token) {
+        // order-service writes the order first and then the payment flow updates status.
+        // Poll a few times so the assistant can return the final visible state.
         OrderDto latest = getOrder(orderNumber, token).orElseThrow(() -> new IllegalStateException("Failed to load the created order"));
         for (int attempt = 0; attempt < 4; attempt++) {
             if (latest.getStatus() != null && latest.getStatus() != OrderStatus.CREATED) {
@@ -975,7 +1053,7 @@ public class ShoppingAssistantService {
         return assistantOrder;
     }
 
-    private List<OrderDto> filterOrders(List<OrderDto> orders, String requestedOrderNumber, String userMessage) {
+    private List<OrderDto> filterOrders(List<OrderDto> orders, AssistantIntentDto intent, String requestedOrderNumber, String userMessage) {
         if (orders == null || orders.isEmpty()) {
             return new ArrayList<>();
         }
@@ -985,15 +1063,17 @@ public class ShoppingAssistantService {
                     .limit(1)
                     .collect(Collectors.toList());
         }
-        String lower = userMessage == null ? "" : userMessage.toLowerCase(Locale.ROOT);
-        Integer dayWindow = extractDayWindow(userMessage);
-        if (dayWindow != null) {
-            Instant cutoff = Instant.now().minus(Duration.ofDays(dayWindow));
+        DateRange dateRange = extractDateRange(intent);
+        if (dateRange != null) {
+            // A specific day becomes a one-day range. "This week" and "this month"
+            // are also just ranges, so the assistant does not need separate branches.
             return orders.stream()
-                    .filter(order -> order.getCreatedAt() != null && !order.getCreatedAt().isBefore(cutoff))
-                    .limit(10)
+                    .filter(order -> order.getCreatedAt() != null
+                            && !order.getCreatedAt().isBefore(dateRange.start)
+                            && order.getCreatedAt().isBefore(dateRange.end))
                     .collect(Collectors.toList());
         }
+        String lower = userMessage == null ? "" : userMessage.toLowerCase(Locale.ROOT);
         if (containsAny(lower, "latest order", "last order", "most recent order")) {
             return orders.stream().limit(1).collect(Collectors.toList());
         }
@@ -1017,40 +1097,79 @@ public class ShoppingAssistantService {
         return matcher.find() ? matcher.group(1).toUpperCase(Locale.ROOT) : "";
     }
 
-    private boolean isBrowseAllRequest(String userMessage, AssistantIntentDto intent) {
-        String lower = userMessage == null ? "" : userMessage.toLowerCase(Locale.ROOT);
-        return firstNonBlank(intent.getQuery(), "").isBlank()
+    private boolean isBrowseAllRequest(AssistantIntentDto intent) {
+        return Boolean.TRUE.equals(intent.getBrowseAll())
+                || (assistantSearchQuery(intent).isBlank()
                 && firstNonBlank(intent.getCategory(), "").isBlank()
-                && containsAny(lower, "all products", "all items", "show products", "browse products", "look at products");
+                && false);
     }
 
-    private String normalizeProductQuery(String query) {
-        String normalized = firstNonBlank(query, "").trim();
-        String lower = normalized.toLowerCase(Locale.ROOT);
-        if (containsAny(lower, "place my order", "show my orders", "where is my order")) {
+    private String assistantSearchQuery(AssistantIntentDto intent) {
+        if (intent == null) {
             return "";
         }
-        normalized = normalized.replaceAll("(?i),?\\s*place (?:my|the)?\\s*order(?: for me)?", "");
-        normalized = normalized.replaceAll("(?i),?\\s*checkout(?: my cart)?", "");
-        normalized = normalized.replaceAll("(?i)^i added\\s+", "");
-        normalized = normalized.replaceAll("(?i)\\s+to\\s+the\\s+ca(?:r|rd)t.*$", "");
-        normalized = normalized.replaceAll("(?i)\\s+to\\s+my\\s+cart.*$", "");
-        normalized = normalized.replaceAll("(?i)^add\\s+", "");
-        return normalized.trim();
+        String searchQuery = firstNonBlank(intent.getSearchQuery(), "");
+        if (!searchQuery.isBlank()) {
+            return searchQuery.trim();
+        }
+        String productName = firstNonBlank(intent.getProductName(), "");
+        if (!productName.isBlank()) {
+            return productName.trim();
+        }
+        String category = firstNonBlank(intent.getCategory(), "");
+        if (!category.isBlank()) {
+            return category.trim();
+        }
+        return "";
     }
 
-    private Integer extractDayWindow(String text) {
+    private String displaySearchLabel(AssistantIntentDto intent, String query, String category) {
+        if (!query.isBlank()) {
+            return query;
+        }
+        if (!category.isBlank()) {
+            return category;
+        }
+        String label = firstNonBlank(intent == null ? "" : intent.getProductName(), "");
+        return label.isBlank() ? "products" : label;
+    }
+
+    private DateRange extractDateRange(AssistantIntentDto intent) {
+        if (intent == null) {
+            return null;
+        }
+        String startText = firstNonBlank(intent.getStartDate(), "");
+        String endText = firstNonBlank(intent.getEndDate(), "");
+        if (startText.isBlank() && endText.isBlank()) {
+            return null;
+        }
+        LocalDate startDate = parseDate(startText);
+        LocalDate endDate = parseDate(endText);
+        if (startDate == null && endDate == null) {
+            return null;
+        }
+        if (startDate == null) {
+            startDate = endDate.minusDays(1);
+        }
+        if (endDate == null) {
+            endDate = startDate.plusDays(1);
+        }
+        if (!endDate.isAfter(startDate)) {
+            endDate = startDate.plusDays(1);
+        }
+        ZoneId zoneId = ZoneId.systemDefault();
+        // startDate is inclusive; endDate is exclusive.
+        // Example: 2026-04-30 to 2026-05-01 means "orders placed on April 30".
+        return new DateRange(startDate.atStartOfDay(zoneId).toInstant(), endDate.atStartOfDay(zoneId).toInstant());
+    }
+
+    private LocalDate parseDate(String text) {
         if (text == null || text.isBlank()) {
             return null;
         }
-        Matcher matcher = DAY_WINDOW_PATTERN.matcher(text);
-        if (!matcher.find()) {
-            return null;
-        }
         try {
-            int days = Integer.parseInt(matcher.group(1));
-            return days > 0 ? days : null;
-        } catch (NumberFormatException ex) {
+            return LocalDate.parse(text.trim());
+        } catch (Exception ex) {
             return null;
         }
     }
@@ -1105,6 +1224,16 @@ public class ShoppingAssistantService {
     private static class CartSnapshot {
         private String currencyCode = "USD";
         private final List<CartItemSnapshot> items = new ArrayList<>();
+    }
+
+    private static class DateRange {
+        private final Instant start;
+        private final Instant end;
+
+        private DateRange(Instant start, Instant end) {
+            this.start = start;
+            this.end = end;
+        }
     }
 
     private static class CartItemSnapshot {

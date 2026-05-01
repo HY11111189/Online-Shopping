@@ -1,11 +1,13 @@
 package com.chuwa.shopping.order.service.impl;
 
+import com.chuwa.shopping.client.AccountServiceClient;
 import com.chuwa.shopping.exception.ShoppingResourceNotFoundException;
 import com.chuwa.shopping.order.dao.OrderNumberLookupRepository;
 import com.chuwa.shopping.client.ItemServiceClient;
 import com.chuwa.shopping.dto.item.InventoryAdjustmentRequestDto;
 import com.chuwa.shopping.dto.item.InventoryAdjustmentType;
 import com.chuwa.shopping.dto.item.ItemDto;
+import com.chuwa.shopping.dto.account.AccountProfileDto;
 import com.chuwa.shopping.dto.order.OrderDto;
 import com.chuwa.shopping.dto.order.OrderLineItemDto;
 import com.chuwa.shopping.dto.order.OrderPaymentSyncRequestDto;
@@ -37,22 +39,27 @@ import java.util.stream.Collectors;
 public class OrderServiceImpl implements OrderService {
 
     private static final long CANCEL_WINDOW_HOURS = 24;
+    private static final BigDecimal FREE_SHIPPING_THRESHOLD = new BigDecimal("35.00");
+    private static final BigDecimal STANDARD_SHIPPING_FEE = new BigDecimal("6.00");
 
     private final ShoppingOrderRepository shoppingOrderRepository;
     private final OrderNumberLookupRepository orderNumberLookupRepository;
     private final OrderMapper orderMapper;
     private final ItemServiceClient itemServiceClient;
+    private final AccountServiceClient accountServiceClient;
     private final OrderPlacedEventPublisher orderPlacedEventPublisher;
 
     public OrderServiceImpl(ShoppingOrderRepository shoppingOrderRepository,
                             OrderNumberLookupRepository orderNumberLookupRepository,
                             OrderMapper orderMapper,
                             ItemServiceClient itemServiceClient,
+                            AccountServiceClient accountServiceClient,
                             OrderPlacedEventPublisher orderPlacedEventPublisher) {
         this.shoppingOrderRepository = shoppingOrderRepository;
         this.orderNumberLookupRepository = orderNumberLookupRepository;
         this.orderMapper = orderMapper;
         this.itemServiceClient = itemServiceClient;
+        this.accountServiceClient = accountServiceClient;
         this.orderPlacedEventPublisher = orderPlacedEventPublisher;
     }
 
@@ -68,14 +75,13 @@ public class OrderServiceImpl implements OrderService {
         order.setStatus(OrderStatus.CREATED);
         order.setCurrencyCode(requestDto.getCurrencyCode());
         order.setTaxAmount(defaultMoney(requestDto.getTaxAmount()));
-        order.setShippingAmount(defaultMoney(requestDto.getShippingAmount()));
-        order.setDiscountAmount(defaultMoney(requestDto.getDiscountAmount()));
         order.setShippingAddress(orderMapper.toAddressSnapshot(requestDto.getShippingAddress()));
         order.setBillingAddress(orderMapper.toAddressSnapshot(requestDto.getBillingAddress()));
         order.setItems(materializeLineItems(requestDto.getItems()));
         order.setCreateRequestId(requestDto.getCreateRequestId());
         order.setVersion(1);
         order.setUpdatedAt(Instant.now());
+        applyPricing(order, requestDto.getCustomerId());
         recalculateTotals(order);
         ShoppingOrder saved = shoppingOrderRepository.save(order);
         orderNumberLookupRepository.save(toOrderNumberLookup(saved));
@@ -93,8 +99,6 @@ public class OrderServiceImpl implements OrderService {
         List<OrderLineItem> updatedItems = materializeLineItems(requestDto.getItems());
         order.setCurrencyCode(requestDto.getCurrencyCode());
         order.setTaxAmount(defaultMoney(requestDto.getTaxAmount()));
-        order.setShippingAmount(defaultMoney(requestDto.getShippingAmount()));
-        order.setDiscountAmount(defaultMoney(requestDto.getDiscountAmount()));
         order.setShippingAddress(orderMapper.toAddressSnapshot(requestDto.getShippingAddress()));
         order.setBillingAddress(orderMapper.toAddressSnapshot(requestDto.getBillingAddress()));
         order.setItems(updatedItems);
@@ -103,6 +107,7 @@ public class OrderServiceImpl implements OrderService {
         order.setStatus(OrderStatus.CREATED);
         order.setVersion(order.getVersion() + 1);
         order.setUpdatedAt(Instant.now());
+        applyPricing(order, order.getKey().getCustomerId());
         recalculateTotals(order);
         return orderMapper.toOrderDto(shoppingOrderRepository.save(order));
     }
@@ -208,11 +213,77 @@ public class OrderServiceImpl implements OrderService {
             item.setItemName(catalogItem.getItemName());
             item.setUpc(catalogItem.getUpc());
             item.setUnitPrice(catalogItem.getUnitPrice());
-            if (item.getLineTotal() == null && item.getUnitPrice() != null && item.getQuantity() != null) {
+            if (item.getUnitPrice() != null && item.getQuantity() != null) {
                 item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
             }
         }
         return lineItems;
+    }
+
+    private void applyPricing(ShoppingOrder order, Long customerId) {
+        AccountProfileDto account = loadAccount(customerId);
+        BigDecimal subtotal = order.getItems().stream()
+                .map(OrderLineItem::getLineTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        order.setShippingAmount(calculateShippingAmount(account, order.getItems(), subtotal));
+        order.setDiscountAmount(calculateDiscountAmount(order.getItems()));
+    }
+
+    private AccountProfileDto loadAccount(Long customerId) {
+        if (customerId == null) {
+            return null;
+        }
+        try {
+            return accountServiceClient.getAccount(customerId);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private BigDecimal calculateShippingAmount(AccountProfileDto account, List<OrderLineItem> items, BigDecimal subtotal) {
+        boolean hasShippingItems = (items == null ? Collections.<OrderLineItem>emptyList() : items)
+                .stream()
+                .anyMatch(item -> item.getItemId() != null && item.getItemId().endsWith("::SHIPPING"));
+        if (!hasShippingItems) {
+            return BigDecimal.ZERO;
+        }
+        boolean premium = account != null && "PREMIUM".equalsIgnoreCase(account.getMembershipLevel());
+        if (premium || subtotal.compareTo(FREE_SHIPPING_THRESHOLD) >= 0) {
+            return BigDecimal.ZERO;
+        }
+        return STANDARD_SHIPPING_FEE;
+    }
+
+    private BigDecimal calculateDiscountAmount(List<OrderLineItem> items) {
+        BigDecimal discount = BigDecimal.ZERO;
+        for (OrderLineItem item : items == null ? Collections.<OrderLineItem>emptyList() : items) {
+            if (item.getSku() == null || item.getQuantity() == null || item.getUnitPrice() == null) {
+                continue;
+            }
+            ItemDto catalogItem = itemServiceClient.getItemBySku(item.getSku());
+            BigDecimal originalUnitPrice = originalUnitPrice(catalogItem);
+            if (originalUnitPrice.compareTo(item.getUnitPrice()) > 0) {
+                discount = discount.add(originalUnitPrice.subtract(item.getUnitPrice())
+                        .multiply(BigDecimal.valueOf(item.getQuantity())));
+            }
+        }
+        return discount;
+    }
+
+    private BigDecimal originalUnitPrice(ItemDto item) {
+        if (item == null) {
+            return BigDecimal.ZERO;
+        }
+        if (item.getListPrice() != null && item.getListPrice().compareTo(defaultMoney(item.getUnitPrice())) > 0) {
+            return item.getListPrice();
+        }
+        if (item.getUnitPrice() != null && item.getDiscountPercent() != null && item.getDiscountPercent() > 0) {
+            BigDecimal divisor = BigDecimal.ONE.subtract(BigDecimal.valueOf(item.getDiscountPercent()).movePointLeft(2));
+            if (divisor.compareTo(BigDecimal.ZERO) > 0) {
+                return item.getUnitPrice().divide(divisor, 2, java.math.RoundingMode.HALF_UP);
+            }
+        }
+        return defaultMoney(item.getUnitPrice());
     }
 
     private void adjustInventory(String orderNumber,
