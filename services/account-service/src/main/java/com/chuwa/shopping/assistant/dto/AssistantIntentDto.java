@@ -7,6 +7,7 @@ public class AssistantIntentDto {
     private String sku;
     private Integer quantity;
     private String category;
+    private String orderNumber;
 
     public String getIntent() {
         return intent;
@@ -46,5 +47,13 @@ public class AssistantIntentDto {
 
     public void setCategory(String category) {
         this.category = category;
+    }
+
+    public String getOrderNumber() {
+        return orderNumber;
+    }
+
+    public void setOrderNumber(String orderNumber) {
+        this.orderNumber = orderNumber;
     }
 }

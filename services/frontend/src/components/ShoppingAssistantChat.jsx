@@ -2,17 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSession } from '../app/SessionProvider'
 import { api } from '../lib/api'
-import { money } from '../lib/format'
+import { dateLabel, money } from '../lib/format'
 import { isSessionActive } from '../lib/session'
 
 const quickPrompts = [
-  'Show me trending electronics',
-  'Find deals on home essentials',
+  'Show me all products',
+  'Find toys for me',
   'Add a coffee maker to my cart',
+  'Show my recent orders',
   'Place my order',
 ]
 
-function ChatItemCard({ item, onAdd }) {
+function ChatItemCard({ item, message, onAdd, onChoose }) {
+  const chooseMode = message?.state === 'clarification'
+  const buttonLabel = chooseMode ? 'Choose this' : 'Add'
   return (
     <article className="assistant-item-card">
       <div className="assistant-item-image">
@@ -27,7 +30,26 @@ function ChatItemCard({ item, onAdd }) {
         </div>
         <div className="assistant-item-actions">
           <Link className="secondary-button" to={item.productUrl || `/product.html?sku=${encodeURIComponent(item.sku)}`}>View</Link>
-          <button className="primary-button" type="button" onClick={() => onAdd(item)}>Add</button>
+          <button className="primary-button" type="button" onClick={() => (chooseMode ? onChoose(item, message) : onAdd(item))}>{buttonLabel}</button>
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function ChatOrderCard({ order }) {
+  return (
+    <article className="assistant-item-card assistant-order-card">
+      <div className="assistant-item-copy">
+        <strong>{order.orderNumber}</strong>
+        <span className="muted">{dateLabel(order.createdAt)}</span>
+        <div className="assistant-item-meta">
+          <span>{order.status}</span>
+          <span>{money(order.totalAmount, order.currencyCode || 'USD')}</span>
+        </div>
+        {order.statusReason ? <span className="muted">{order.statusReason}</span> : null}
+        <div className="assistant-item-actions">
+          <Link className="primary-button" to={order.orderUrl || `/order-status.html?orderNumber=${encodeURIComponent(order.orderNumber)}`}>Open order</Link>
         </div>
       </div>
     </article>
@@ -41,8 +63,8 @@ export function ShoppingAssistantChat() {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      text: 'I can search products, add items to your cart, and place an order when you are signed in.',
-      actions: [{ label: 'Find electronics', href: '/index.html?category=Electronics' }],
+      text: 'I can browse the full catalog, look up products, add items to your cart, place an order with your saved checkout details, and show your recent orders.',
+      actions: [{ label: 'Browse all products', href: '/index.html' }],
     },
   ])
   const [isSending, setIsSending] = useState(false)
@@ -74,9 +96,15 @@ export function ShoppingAssistantChat() {
           role: 'assistant',
           text: response.reply || 'I found something useful.',
           items: response.items || [],
+          orders: response.orders || [],
           actions: response.actions || [],
           requiresSignIn: Boolean(response.requiresSignIn),
+          intent: response.intent || '',
+          state: response.state || '',
+          resolvedQuery: response.resolvedQuery || '',
           orderNumber: response.orderNumber || '',
+          orderStatus: response.orderStatus || '',
+          cartItemCount: response.cartItemCount,
           checkoutUrl: response.checkoutUrl || '',
         },
       ])
@@ -107,6 +135,19 @@ export function ShoppingAssistantChat() {
     }
   }
 
+  function chooseItem(item, message) {
+    const name = item.itemName || item.sku
+    if (message?.intent === 'PLACE_ORDER') {
+      sendMessage(`Order ${name} for me`)
+      return
+    }
+    if (message?.intent === 'ADD_TO_CART') {
+      sendMessage(`Add ${name} to my cart`)
+      return
+    }
+    sendMessage(`Show me ${name}`)
+  }
+
   function handleSubmit(event) {
     event.preventDefault()
     sendMessage(draft)
@@ -127,7 +168,7 @@ export function ShoppingAssistantChat() {
           <div className="assistant-chat-head">
             <div>
               <p className="eyebrow">Shopping assistant</p>
-              <h3>Tell me what you need</h3>
+              <h3>Tell me what you want to shop for</h3>
             </div>
             <button className="secondary-button assistant-close" type="button" onClick={() => setOpen(false)}>Close</button>
           </div>
@@ -146,9 +187,10 @@ export function ShoppingAssistantChat() {
                 <div className="assistant-bubble">
                   <p>{message.text}</p>
                   {message.requiresSignIn ? <p className="assistant-note">Sign in to finish actions like add to cart and place order.</p> : null}
+                  {typeof message.cartItemCount === 'number' ? <p className="assistant-note">Cart items: {message.cartItemCount}</p> : null}
                   {message.orderNumber ? (
                     <Link className="primary-button assistant-inline-action" to={message.checkoutUrl || `/order-status.html?orderNumber=${encodeURIComponent(message.orderNumber)}`}>
-                      View order {message.orderNumber}
+                      {message.orderStatus ? `View ${message.orderStatus.toLowerCase()} order ${message.orderNumber}` : `View order ${message.orderNumber}`}
                     </Link>
                   ) : null}
                   {message.actions?.length ? (
@@ -164,7 +206,14 @@ export function ShoppingAssistantChat() {
                 {message.items?.length ? (
                   <div className="assistant-results-grid">
                     {message.items.map((item) => (
-                      <ChatItemCard key={item.sku} item={item} onAdd={addItem} />
+                      <ChatItemCard key={item.sku} item={item} message={message} onAdd={addItem} onChoose={chooseItem} />
+                    ))}
+                  </div>
+                ) : null}
+                {message.orders?.length ? (
+                  <div className="assistant-results-grid">
+                    {message.orders.map((order) => (
+                      <ChatOrderCard key={order.orderNumber} order={order} />
                     ))}
                   </div>
                 ) : null}
