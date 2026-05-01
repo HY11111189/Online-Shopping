@@ -1,7 +1,7 @@
-const storageKeys = {
+  const storageKeys = {
   token: 'shopping.token',
   username: 'shopping.username',
-  expiresIn: 'shopping.expiresIn',
+  expiresIn: 'shopping.expi    resIn',
   expiresAt: 'shopping.expiresAt',
   customerId: 'shopping.customerId',
   lastOrder: 'shopping.lastOrderNumber',

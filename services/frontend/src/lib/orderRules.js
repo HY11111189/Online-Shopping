@@ -5,13 +5,18 @@ function createdTimeOf(order) {
 }
 
 function paidTimeOf(order) {
-  return new Date(order?.paidAt || order?.createdAt || Date.now()).getTime()
+  return new Date(order?.createdAt || order?.paidAt || Date.now()).getTime()
 }
 
 export function canCancel(order) {
   if (!order) return false
-  if (!['CREATED', 'PAID'].includes(order.status)) return false
-  return Date.now() - createdTimeOf(order) <= DAY_MS
+  if (order.status === 'CREATED') {
+    return Date.now() - createdTimeOf(order) <= DAY_MS
+  }
+  if (order.status === 'PAID') {
+    return Date.now() - paidTimeOf(order) <= DAY_MS
+  }
+  return false
 }
 
 export function canRefund(order) {

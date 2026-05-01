@@ -37,8 +37,7 @@ export const api = {
     return apiRequest(`/api/v1/shopping/items/search?${params.toString()}`)
   },
   getItemsByCategory: (category, limit = 48) => {
-    const params = new URLSearchParams({ category, limit: String(limit) })
-    return apiRequest(`/api/v1/shopping/items/search?${params.toString()}`)
+    return apiRequest(`/api/v1/shopping/items/category/${encodeURIComponent(category)}?limit=${encodeURIComponent(String(limit))}`)
   },
   getItemBySku: (sku) => apiRequest(`/api/v1/shopping/items/sku/${encodeURIComponent(sku)}`),
   getCart: (token, customerId) => apiRequest(`/api/v1/shopping/carts/${customerId}`, { token }),
@@ -52,4 +51,5 @@ export const api = {
   getPayment: (token, paymentNumber) => apiRequest(`/api/v1/shopping/payments/${encodeURIComponent(paymentNumber)}`, { token }),
   cancelPayment: (token, paymentNumber, payload) => apiRequest(`/api/v1/shopping/payments/${encodeURIComponent(paymentNumber)}/cancel`, { token, method: 'POST', body: payload }),
   refundPayment: (token, paymentNumber, payload) => apiRequest(`/api/v1/shopping/payments/${encodeURIComponent(paymentNumber)}/refund`, { token, method: 'POST', body: payload }),
+  chatAssistant: (token, payload) => apiRequest('/api/v1/shopping/assistant/chat', { token, method: 'POST', body: payload }),
 }

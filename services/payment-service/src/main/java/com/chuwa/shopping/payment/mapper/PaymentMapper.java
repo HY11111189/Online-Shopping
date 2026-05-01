@@ -27,6 +27,7 @@ public class PaymentMapper {
         dto.setProcessedAt(payment.getProcessedAt());
         dto.setReversedAt(payment.getReversedAt());
         dto.setGatewayUpdatedAt(payment.getGatewayUpdatedAt());
+        dto.setInventoryAdjusted(payment.getInventoryAdjusted());
         dto.setCreatedAt(payment.getCreatedAt());
         dto.setUpdatedAt(payment.getUpdatedAt());
         return dto;

@@ -8,6 +8,7 @@ import { money, originalPriceFromDiscount } from '../lib/format'
 import { isSessionActive } from '../lib/session'
 import { loadWishlist, saveWishlist } from '../lib/wishlist'
 import { signinUrl } from '../lib/session'
+import { ShoppingAssistantChat } from '../components/ShoppingAssistantChat'
 
 function CatalogTile({ addedToCart, addToCart, addedToWishlist, item, saved, toggleWishlist, dealLabel = '' }) {
   const originalPrice = originalPriceFromDiscount(item.unitPrice, item.discountPercent)
@@ -66,7 +67,11 @@ export function HomePage() {
 
   const itemsQuery = useQuery({
     queryKey: category ? ['catalog-category', category] : q ? ['catalog-search', q] : ['catalog-home'],
-    queryFn: () => category ? api.getItemsByCategory(category, 48) : api.searchItems({ q, limit: 36 }),
+    queryFn: () => {
+      if (category) return api.getItemsByCategory(category, 48)
+      if (q) return api.searchItems({ q, limit: 36 })
+      return api.getItems()
+    },
     staleTime: 60_000,
   })
 
@@ -219,6 +224,8 @@ export function HomePage() {
           </div>
         </section>
       ) : null}
+
+      {!searchMode && !category ? <ShoppingAssistantChat /> : null}
 
       {!searchMode && !category ? (
         <section className="home-category-blocks" aria-label="Popular product picks" style={{ marginTop: 18 }}>

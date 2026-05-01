@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useSession } from '../app/SessionProvider'
 import { api } from '../lib/api'
 import { normalizeCategories } from '../lib/categories'
-import { signinUrl } from '../lib/session'
+import { isSessionActive, signinUrl } from '../lib/session'
 
 const pageMeta = {
   '/index.html': {
@@ -125,9 +125,10 @@ export function Layout() {
     queryFn: () => api.getCategories(),
     staleTime: 300_000,
   })
+  const signedIn = isSessionActive(session)
   const categories = useMemo(() => normalizeCategories(categoriesQuery.data || []), [categoriesQuery.data])
   const dropdownCategories = categories.length ? categories : ['Grocery & Essentials', 'Electronics', 'Home & Garden', 'Clothing & Shoes', 'Toys & Games']
-  const cartUnits = (cartQuery.data?.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0)
+  const cartUnits = signedIn ? (cartQuery.data?.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0) : 0
 
   useEffect(() => {
     setAccountMenuOpen(false)
@@ -187,7 +188,7 @@ export function Layout() {
             </button>
           </form>
           <div className="header-actions">
-            {session.token ? (
+            {signedIn ? (
               <div className="account-menu-wrapper">
                 <button
                   aria-expanded={accountMenuOpen}
@@ -195,15 +196,15 @@ export function Layout() {
                   className="account-action account-menu-toggle"
                   type="button"
                   onClick={() => setAccountMenuOpen((value) => !value)}
-                >
-                  <span className="cart-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-                  </span>
-                  <span className="cart-copy">
-                    <strong>Account</strong>
-                    <span>{session.username || 'My account'}</span>
-                  </span>
-                </button>
+                  >
+                    <span className="cart-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                    </span>
+                    <span className="cart-copy">
+                      <strong>Account</strong>
+                      <span>{session.username || 'My account'}</span>
+                    </span>
+                  </button>
                 <div className="account-menu" hidden={!accountMenuOpen} role="menu">
                   <NavLink role="menuitem" to="/account.html">Account</NavLink>
                   <button
@@ -224,8 +225,8 @@ export function Layout() {
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="20" height="20" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
                 </span>
                 <span className="cart-copy">
-                  <strong>Sign in</strong>
-                  <span>Account</span>
+                  <strong>Account</strong>
+                  <span>Sign in</span>
                 </span>
               </NavLink>
             )}

@@ -28,6 +28,7 @@ public class PaymentDto {
     private Instant processedAt;
     private Instant reversedAt;
     private Instant gatewayUpdatedAt;
+    private Boolean inventoryAdjusted;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -173,6 +174,14 @@ public class PaymentDto {
 
     public void setGatewayUpdatedAt(Instant gatewayUpdatedAt) {
         this.gatewayUpdatedAt = gatewayUpdatedAt;
+    }
+
+    public Boolean getInventoryAdjusted() {
+        return inventoryAdjusted;
+    }
+
+    public void setInventoryAdjusted(Boolean inventoryAdjusted) {
+        this.inventoryAdjusted = inventoryAdjusted;
     }
 
     public LocalDateTime getCreatedAt() {

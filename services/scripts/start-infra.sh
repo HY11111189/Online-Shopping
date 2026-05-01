@@ -7,6 +7,12 @@ COMPOSE_FILE="$SERVICES_DIR/docker-compose.yml"
 COMPOSE_HTTP_TIMEOUT="${COMPOSE_HTTP_TIMEOUT:-180}"
 export COMPOSE_HTTP_TIMEOUT
 
+if [ -f "$SERVICES_DIR/.env.local" ]; then
+  set -a
+  . "$SERVICES_DIR/.env.local"
+  set +a
+fi
+
 sh "$SCRIPT_DIR/cleanup-infra.sh"
 echo "Skipping compose down; cleanup script already removed stale containers."
 echo "Starting core infrastructure containers..."

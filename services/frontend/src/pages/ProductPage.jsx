@@ -137,17 +137,15 @@ export function ProductPage() {
               <span className="tag" id="product-buybox-inventory">{item?.inventory?.inStock ? 'In stock' : 'Out of stock'}</span>
             </div>
             <div className="buy-box-purchase-row">
-              <div className="buy-box-purchase-inline">
-                <div className="qty-group buy-box-qty">
-                  <button className="qty-button" type="button" id="product-qty-minus" onClick={() => setQuantity((value) => Math.max(1, value - 1))}>-</button>
-                  <strong id="product-qty-readout">{quantity}</strong>
-                  <button className="qty-button" type="button" id="product-qty-plus" onClick={() => setQuantity((value) => value + 1)}>+</button>
-                </div>
-                <button className="primary-button" type="button" id="product-add-button" onClick={addToCart}>{addedToCart ? 'Added to cart' : 'Add to cart'}</button>
+              <div className="qty-group buy-box-qty">
+                <button className="qty-button" type="button" id="product-qty-minus" onClick={() => setQuantity((value) => Math.max(1, value - 1))}>-</button>
+                <strong id="product-qty-readout">{quantity}</strong>
+                <button className="qty-button" type="button" id="product-qty-plus" onClick={() => setQuantity((value) => value + 1)}>+</button>
               </div>
+              <button className="primary-button buy-box-action-button" type="button" id="product-add-button" onClick={addToCart}>{addedToCart ? 'Added to cart' : 'Add to cart'}</button>
               <button
                 aria-label={wishlist.includes(item?.sku) ? 'Remove from wish list' : 'Save to wish list'}
-                className={`product-heart${wishlist.includes(item?.sku) ? ' product-heart--saved' : ''}`}
+                className={`product-heart buy-box-action-button${wishlist.includes(item?.sku) ? ' product-heart--saved' : ''}`}
                 type="button"
                 id="product-wishlist-button"
                 onClick={toggleWishlist}

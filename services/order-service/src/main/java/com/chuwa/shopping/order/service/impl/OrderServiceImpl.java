@@ -153,19 +153,6 @@ public class OrderServiceImpl implements OrderService {
         order.setVersion(order.getVersion() + 1);
 
         if (requestDto.getPaymentStatus() == PaymentStatus.CAPTURED) {
-            if (order.getStatus() != OrderStatus.PAID) {
-                try {
-                    adjustInventory(order.getOrderNumber(),
-                            order.getItems(),
-                            "payment-capture-" + requestDto.getPaymentReference(),
-                            InventoryAdjustmentType.PURCHASE);
-                } catch (RuntimeException inventoryFailure) {
-                    if (isInsufficientStockFailure(inventoryFailure)) {
-                        throw new IllegalStateException("INSUFFICIENT_STOCK", inventoryFailure);
-                    }
-                    throw inventoryFailure;
-                }
-            }
             order.setStatus(OrderStatus.PAID);
             order.setPaidAt(Instant.now());
         }
@@ -183,6 +170,12 @@ public class OrderServiceImpl implements OrderService {
             if (nextStatus == OrderStatus.CANCELLED) {
                 order.setCancelledAt(Instant.now());
             }
+        }
+
+        if (requestDto.getPaymentStatus() == PaymentStatus.CANCELLED) {
+            order.setStatus(OrderStatus.CANCELLED);
+            order.setStatusReason(requestDto.getStatusReason() == null ? "Payment canceled" : requestDto.getStatusReason());
+            order.setCancelledAt(Instant.now());
         }
 
         if (requestDto.getPaymentStatus() == PaymentStatus.FAILED) {

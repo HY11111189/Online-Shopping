@@ -1,9 +1,13 @@
 package com.chuwa.shopping.payment.service.impl;
 
+import com.chuwa.shopping.client.ItemServiceClient;
 import com.chuwa.shopping.client.OrderServiceClient;
+import com.chuwa.shopping.dto.item.InventoryAdjustmentRequestDto;
+import com.chuwa.shopping.dto.item.InventoryAdjustmentType;
 import com.chuwa.shopping.dto.order.OrderDto;
 import com.chuwa.shopping.dto.order.OrderPaymentSyncRequestDto;
 import com.chuwa.shopping.dto.order.OrderStatus;
+import com.chuwa.shopping.dto.order.OrderLineItemDto;
 import com.chuwa.shopping.dto.payment.PaymentOperationType;
 import com.chuwa.shopping.dto.payment.PaymentStatus;
 import com.chuwa.shopping.exception.ShoppingResourceNotFoundException;
@@ -19,6 +23,10 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -30,13 +38,16 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentTransactionRepository paymentTransactionRepository;
     private final PaymentMapper paymentMapper;
     private final OrderServiceClient orderServiceClient;
+    private final ItemServiceClient itemServiceClient;
 
     public PaymentServiceImpl(PaymentTransactionRepository paymentTransactionRepository,
                               PaymentMapper paymentMapper,
-                              OrderServiceClient orderServiceClient) {
+                              OrderServiceClient orderServiceClient,
+                              ItemServiceClient itemServiceClient) {
         this.paymentTransactionRepository = paymentTransactionRepository;
         this.paymentMapper = paymentMapper;
         this.orderServiceClient = orderServiceClient;
+        this.itemServiceClient = itemServiceClient;
     }
 
     @Override
@@ -58,6 +69,12 @@ public class PaymentServiceImpl implements PaymentService {
         if (requestDto.getPaymentStatus() == PaymentStatus.CAPTURED || requestDto.getPaymentStatus() == PaymentStatus.AUTHORIZED) {
             payment.setProcessedAt(Instant.now());
         }
+
+        if (requestDto.getPaymentStatus() == PaymentStatus.FAILED && Boolean.TRUE.equals(payment.getInventoryAdjusted())) {
+            restockInventory(payment.getOrderId(), payment.getPaymentNumber());
+            payment.setInventoryAdjusted(Boolean.FALSE);
+        }
+
         PaymentDto savedPayment = paymentMapper.toPaymentDto(paymentTransactionRepository.save(payment));
         if (requestDto.getPaymentStatus() == PaymentStatus.CAPTURED) {
             syncOrderPayment(payment.getOrderId(), payment.getPaymentNumber(), PaymentStatus.CAPTURED, "Payment captured");
@@ -196,12 +213,51 @@ public class PaymentServiceImpl implements PaymentService {
         }
         Instant now = Instant.now();
         Instant cancelBase = order.getCreatedAt();
-        Instant refundBase = order.getPaidAt() == null ? order.getCreatedAt() : order.getPaidAt();
+        Instant refundBase = order.getCreatedAt();
         if (targetOrderStatus == OrderStatus.CANCELLED && (cancelBase == null || now.isAfter(cancelBase.plus(CANCEL_WINDOW_HOURS, ChronoUnit.HOURS)))) {
             throw new IllegalStateException("Paid orders cannot be canceled after 1 day");
         }
         if (targetOrderStatus == OrderStatus.REFUNDED && (refundBase == null || now.isAfter(refundBase.plus(REFUND_WINDOW_DAYS, ChronoUnit.DAYS)))) {
             throw new IllegalStateException("Refunds are only available for 7 days");
         }
+    }
+
+    private void restockInventory(String orderNumber, String operationPrefix) {
+        OrderDto order = orderServiceClient.getOrder(orderNumber);
+        for (OrderLineItemDto item : groupBySku(order.getItems())) {
+            InventoryAdjustmentRequestDto requestDto = new InventoryAdjustmentRequestDto();
+            requestDto.setAdjustmentType(InventoryAdjustmentType.RESTOCK);
+            requestDto.setQuantity(item.getQuantity());
+            requestDto.setReference(orderNumber);
+            requestDto.setOperationId(operationPrefix + ":restock:" + item.getSku());
+            itemServiceClient.adjustInventory(item.getSku(), requestDto);
+        }
+    }
+
+    private List<OrderLineItemDto> groupBySku(List<OrderLineItemDto> items) {
+        Map<String, OrderLineItemDto> grouped = new LinkedHashMap<>();
+        if (items == null) {
+            return new ArrayList<>();
+        }
+        for (OrderLineItemDto item : items) {
+            if (item == null || item.getSku() == null || item.getQuantity() == null) {
+                continue;
+            }
+            OrderLineItemDto existing = grouped.get(item.getSku());
+            if (existing == null) {
+                OrderLineItemDto copy = new OrderLineItemDto();
+                copy.setItemId(item.getItemId());
+                copy.setSku(item.getSku());
+                copy.setItemName(item.getItemName());
+                copy.setUpc(item.getUpc());
+                copy.setQuantity(item.getQuantity());
+                copy.setUnitPrice(item.getUnitPrice());
+                copy.setLineTotal(item.getLineTotal());
+                grouped.put(item.getSku(), copy);
+            } else {
+                existing.setQuantity(existing.getQuantity() + item.getQuantity());
+            }
+        }
+        return new ArrayList<>(grouped.values());
     }
 }

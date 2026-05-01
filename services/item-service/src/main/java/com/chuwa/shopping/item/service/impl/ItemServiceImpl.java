@@ -25,7 +25,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Service
@@ -106,17 +105,29 @@ public class ItemServiceImpl implements ItemService {
     }
 
     @Override
+    public List<ItemDto> getItemsByCategory(String category, int limit) {
+        final String normalizedCategory = category == null ? "" : category.trim();
+        final int cappedLimit = Math.max(1, Math.min(limit, 60));
+        return itemRepository.findAll().stream()
+                .map(itemMapper::toItemDto)
+                .filter(item -> item.getSku() != null)
+                .filter(item -> item.getCategory() != null && item.getCategory().trim().equalsIgnoreCase(normalizedCategory))
+                .collect(Collectors.collectingAndThen(Collectors.toList(), items -> items.stream()
+                        .limit(cappedLimit)
+                        .collect(Collectors.toList())));
+    }
+
+    @Override
     public List<ItemDto> searchItems(String query, String category, String brand, Boolean inStock, int limit) {
-        // Elasticsearch only for free-text queries; category/brand browsing goes straight to MongoDB
-        boolean hasText = query != null && !query.isBlank();
-        if (hasText && itemSearchService != null) {
-            try {
-                return itemSearchService.search(query, category, brand, inStock, limit);
-            } catch (Exception ex) {
-                // fall through to MongoDB
-            }
+        if (query == null || query.isBlank()) {
+            return getAllItems().stream()
+                    .limit(Math.max(1, Math.min(limit, 60)))
+                    .collect(Collectors.toList());
         }
-        return fallbackSearch(query, category, brand, inStock, limit);
+        if (itemSearchService == null) {
+            throw new IllegalStateException("Elasticsearch search is not available");
+        }
+        return itemSearchService.search(query, inStock, limit);
     }
 
     @Override
@@ -239,151 +250,6 @@ public class ItemServiceImpl implements ItemService {
         }
         int available = inventory.getAvailableQuantity() == null ? 0 : inventory.getAvailableQuantity();
         inventory.setInStock(available > 0);
-    }
-
-    private List<ItemDto> fallbackSearch(String query, String category, String brand, Boolean inStock, int limit) {
-        final String normalizedQuery = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-        final String normalizedCategory = category == null ? "" : category.trim().toLowerCase(Locale.ROOT);
-        final String normalizedBrand = brand == null ? "" : brand.trim().toLowerCase(Locale.ROOT);
-        final int cappedLimit = Math.max(1, Math.min(limit, 60));
-
-        return itemRepository.findAll().stream()
-                .map(itemMapper::toItemDto)
-                .filter(item -> item.getSku() != null)
-                .filter(item -> normalizedCategory.isEmpty()
-                        || matchesCategory(item, normalizedCategory))
-                .filter(item -> normalizedBrand.isEmpty()
-                        || (item.getBrand() != null && item.getBrand().toLowerCase(Locale.ROOT).contains(normalizedBrand)))
-                .filter(item -> inStock == null
-                        || (item.getInventory() != null && Boolean.valueOf(inStock).equals(item.getInventory().getInStock())))
-                .filter(item -> normalizedQuery.isEmpty() || matchesQuery(item, normalizedQuery))
-                .collect(Collectors.collectingAndThen(Collectors.toMap(
-                        ItemDto::getSku,
-                        item -> item,
-                        (first, duplicate) -> first,
-                        java.util.LinkedHashMap::new
-                ), map -> new ArrayList<>(map.values()).stream().limit(cappedLimit).collect(Collectors.toList())));
-    }
-
-    private boolean matchesQuery(ItemDto item, String normalizedQuery) {
-        for (String term : expandSearchTerms(normalizedQuery)) {
-            if (containsIgnoreCase(item.getItemName(), term)
-                    || containsIgnoreCase(item.getBrand(), term)
-                    || containsIgnoreCase(item.getCategory(), term)
-                    || containsIgnoreCase(item.getDescription(), term)
-                    || containsIgnoreCase(item.getSku(), term)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean matchesCategory(ItemDto item, String normalizedCategory) {
-        String category = item.getCategory() == null ? "" : item.getCategory().toLowerCase(Locale.ROOT);
-        if (category.equals(normalizedCategory) || category.contains(normalizedCategory) || normalizedCategory.contains(category)) {
-            return true;
-        }
-        for (String alias : categoryAliases(normalizedCategory)) {
-            if (category.contains(alias)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private List<String> expandSearchTerms(String normalizedQuery) {
-        List<String> terms = new ArrayList<>();
-        for (String token : normalizedQuery.split("\\s+")) {
-            if (token.isBlank()) {
-                continue;
-            }
-            addTerm(terms, token);
-            switch (token) {
-                case "kid":
-                case "kids":
-                case "child":
-                case "children":
-                case "toddler":
-                    addTerm(terms, "baby");
-                    addTerm(terms, "toy");
-                    addTerm(terms, "toys");
-                    addTerm(terms, "games");
-                    break;
-                case "toy":
-                case "toys":
-                case "game":
-                case "games":
-                    addTerm(terms, "kid");
-                    addTerm(terms, "kids");
-                    addTerm(terms, "baby");
-                    break;
-                case "grocery":
-                    addTerm(terms, "food");
-                    addTerm(terms, "essentials");
-                    break;
-                case "home":
-                    addTerm(terms, "garden");
-                    addTerm(terms, "tools");
-                    break;
-                case "fashion":
-                    addTerm(terms, "clothing");
-                    addTerm(terms, "shoes");
-                    break;
-                default:
-                    break;
-            }
-        }
-        return terms;
-    }
-
-    private List<String> categoryAliases(String normalizedCategory) {
-        List<String> aliases = new ArrayList<>();
-        switch (normalizedCategory) {
-            case "grocery & essentials":
-            case "grocery":
-                addTerm(aliases, "grocery");
-                addTerm(aliases, "essentials");
-                break;
-            case "home & garden":
-            case "home":
-                addTerm(aliases, "home");
-                addTerm(aliases, "garden");
-                addTerm(aliases, "tools");
-                break;
-            case "clothing & shoes":
-            case "fashion":
-                addTerm(aliases, "clothing");
-                addTerm(aliases, "fashion");
-                addTerm(aliases, "shoes");
-                break;
-            case "baby":
-            case "baby & kids":
-                addTerm(aliases, "baby");
-                addTerm(aliases, "kids");
-                addTerm(aliases, "kid");
-                break;
-            case "toys & games":
-            case "toy":
-            case "toys":
-                addTerm(aliases, "toy");
-                addTerm(aliases, "toys");
-                addTerm(aliases, "games");
-                break;
-            default:
-                addTerm(aliases, normalizedCategory);
-                break;
-        }
-        return aliases;
-    }
-
-    private void addTerm(List<String> terms, String term) {
-        if (!terms.contains(term)) {
-            terms.add(term);
-        }
-    }
-
-    private boolean containsIgnoreCase(String value, String normalizedQuery) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(normalizedQuery);
     }
 
     private void indexIfAvailable(ItemDocument saved) {

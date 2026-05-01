@@ -3,7 +3,7 @@ import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import { useSession } from '../app/SessionProvider'
 import { api } from '../lib/api'
 import { dateLabel, fulfillmentOf, fullAddress, money, originalPriceFromDiscount } from '../lib/format'
-import { canCancel } from '../lib/orderRules'
+import { canCancel, canRefund } from '../lib/orderRules'
 import { useProductLookupBySku } from '../lib/useProductLookup'
 import { signinUrl } from '../lib/session'
 
@@ -44,11 +44,17 @@ export function ConfirmationPage() {
   const amountPaid = Number(order?.totalAmount || 0)
   const cancelMutation = useMutation({
     mutationFn: () => (order?.status === 'PAID' && order?.paymentReference
-      ? api.cancelPayment(session.token, order.paymentReference, {
-          idempotencyKey: `cancel-${Date.now()}`,
-          amount: order.totalAmount,
-          externalReference: order.orderNumber,
-        })
+      ? (canCancel(order)
+          ? api.cancelPayment(session.token, order.paymentReference, {
+              idempotencyKey: `cancel-${Date.now()}`,
+              amount: order.totalAmount,
+              externalReference: order.orderNumber,
+            })
+          : api.refundPayment(session.token, order.paymentReference, {
+              idempotencyKey: `refund-${Date.now()}`,
+              amount: order.totalAmount,
+              externalReference: order.orderNumber,
+            }))
       : api.cancelOrder(session.token, orderNumber, {
           cancelRequestId: `cancel-${Date.now()}`,
           statusReason: 'Cancelled by customer',
@@ -143,7 +149,7 @@ export function ConfirmationPage() {
           className="secondary-button"
           type="button"
           onClick={() => cancelMutation.mutate()}
-          disabled={!canCancel(order) || cancelMutation.isPending}
+          disabled={!(canCancel(order) || canRefund(order)) || cancelMutation.isPending}
         >
           {isCancelled ? 'Order cancelled' : 'Cancel order'}
         </button>

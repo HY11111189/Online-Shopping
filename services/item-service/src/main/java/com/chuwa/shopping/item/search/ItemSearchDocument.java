@@ -16,10 +16,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Versioned to v2 so the new multi-field mapping is created fresh on first start.
- * Run `DELETE /shopping-items-v2` in Kibana / curl if you need to force a remap.
+ * Versioned to v5 so analyzer changes can be created fresh on first start.
+ * Run `DELETE /shopping-items-v4` in Kibana / curl if you need to force a remap.
  */
-@Document(indexName = "shopping-items-v2")
+@Document(indexName = "shopping-items-v5")
 public class ItemSearchDocument {
 
     @Id
@@ -38,7 +38,7 @@ public class ItemSearchDocument {
      *  - itemName.suggest  → Search_As_You_Type, powers prefix/ngram auto-complete
      */
     @MultiField(
-        mainField  = @Field(type = FieldType.Text, analyzer = "standard"),
+        mainField  = @Field(type = FieldType.Text, analyzer = "english"),
         otherFields = {
             @InnerField(suffix = "keyword", type = FieldType.Keyword),
             @InnerField(suffix = "suggest", type = FieldType.Search_As_You_Type)
@@ -52,7 +52,7 @@ public class ItemSearchDocument {
      *  - brand.keyword → Keyword for exact filter
      */
     @MultiField(
-        mainField  = @Field(type = FieldType.Text, analyzer = "standard"),
+        mainField  = @Field(type = FieldType.Text, analyzer = "english"),
         otherFields = {
             @InnerField(suffix = "keyword", type = FieldType.Keyword)
         }
@@ -67,12 +67,12 @@ public class ItemSearchDocument {
     @MultiField(
         mainField  = @Field(type = FieldType.Keyword),
         otherFields = {
-            @InnerField(suffix = "text", type = FieldType.Text, analyzer = "standard")
+            @InnerField(suffix = "text", type = FieldType.Text, analyzer = "english")
         }
     )
     private String category;
 
-    @Field(type = FieldType.Text)
+    @Field(type = FieldType.Text, analyzer = "english")
     private String description;
 
     @Field(type = FieldType.Double)

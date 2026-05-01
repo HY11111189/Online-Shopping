@@ -39,12 +39,6 @@ export function CartPage() {
       }
       return
     }
-    if (!next.length) {
-      const all = items.map((item) => item.itemId)
-      setSelectedItemIds(all)
-      saveSelectedCartItems(all)
-      return
-    }
     if (next.length !== selectedItemIds.length) {
       setSelectedItemIds(next)
       saveSelectedCartItems(next)

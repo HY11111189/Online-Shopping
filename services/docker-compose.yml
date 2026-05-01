@@ -162,6 +162,7 @@ services:
       SHOPPING_SQL_PASSWORD: myJava!1
       SHOPPING_ITEM_SERVICE_BASE_URL: http://item-service:8082
       SHOPPING_ORDER_SERVICE_BASE_URL: http://order-service:8083
+      SHOPPING_ASSISTANT_MODEL: ${SHOPPING_ASSISTANT_MODEL:-gpt-5.1}
       SPRING_SECURITY_OAUTH2_AUTHORIZATIONSERVER_ISSUER: http://account-service:8081
       APP_OAUTH2_KEY_STORE_PATH: /app/certificates
     ports:

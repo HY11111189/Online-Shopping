@@ -44,6 +44,12 @@ public class ItemController {
         return ResponseEntity.ok(itemService.getCategories());
     }
 
+    @GetMapping("/category/{category}")
+    public ResponseEntity<List<ItemDto>> getItemsByCategory(@PathVariable String category,
+                                                            @RequestParam(value = "limit", defaultValue = "48") int limit) {
+        return ResponseEntity.ok(itemService.getItemsByCategory(category, limit));
+    }
+
     @GetMapping("/search")
     public ResponseEntity<List<ItemDto>> searchItems(@RequestParam(value = "q", required = false) String query,
                                                      @RequestParam(value = "category", required = false) String category,

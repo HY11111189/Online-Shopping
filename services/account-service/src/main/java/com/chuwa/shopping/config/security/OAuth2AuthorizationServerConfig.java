@@ -132,6 +132,7 @@ public class OAuth2AuthorizationServerConfig {
                         .antMatchers("/internal/**").permitAll()
                         .antMatchers("/actuator/**", "/error").permitAll()
                         .antMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/shopping/items/**").permitAll()
+                        .antMatchers("/api/v1/shopping/assistant/**").permitAll()
                         .antMatchers("/api/v1/shopping/**", "/api/v1/oauth2/**").authenticated()
                         .anyRequest().permitAll()
                 )

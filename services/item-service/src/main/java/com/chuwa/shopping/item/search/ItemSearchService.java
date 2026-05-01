@@ -6,7 +6,6 @@ import org.elasticsearch.common.lucene.search.function.CombineFunction;
 import org.elasticsearch.common.lucene.search.function.FunctionScoreQuery;
 import org.elasticsearch.common.unit.Fuzziness;
 import org.elasticsearch.index.query.BoolQueryBuilder;
-import org.elasticsearch.index.query.DisMaxQueryBuilder;
 import org.elasticsearch.index.query.MultiMatchQueryBuilder;
 import org.elasticsearch.index.query.Operator;
 import org.elasticsearch.index.query.QueryBuilders;
@@ -25,8 +24,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.LinkedHashSet;
 import java.util.stream.Collectors;
 
 @Service
@@ -39,61 +36,48 @@ public class ItemSearchService {
         this.elasticsearchOperations = elasticsearchOperations;
     }
 
-    public List<ItemDto> search(String query, String category, String brand, Boolean inStock, int limit) {
+    public List<ItemDto> search(String query, Boolean inStock, int limit) {
         BoolQueryBuilder outerBool = QueryBuilders.boolQuery();
 
         if (query != null && !query.isBlank()) {
             String q = query.trim();
-            String expanded = expandQuery(q);
 
-            // dis_max: pick the single best-matching clause; tieBreaker rewards multi-field overlap
-            DisMaxQueryBuilder disMax = QueryBuilders.disMaxQuery().tieBreaker(0.3f);
-
-            // 1. Exact SKU lookup — highest priority
-            disMax.add(QueryBuilders.termQuery("sku", q).boost(20.0f));
-
-            // 2. Search-as-you-type: prefix / n-gram autocomplete on itemName.suggest sub-fields
-            disMax.add(QueryBuilders.multiMatchQuery(q)
-                    .field("itemName.suggest")
-                    .field("itemName.suggest._2gram")
-                    .field("itemName.suggest._3gram")
-                    .type(MultiMatchQueryBuilder.Type.BOOL_PREFIX)
-                    .boost(10.0f));
-
-            // 3. Phrase prefix on itemName for high-precision partial matches ("cof" → "coffee mug")
-            disMax.add(QueryBuilders.matchPhrasePrefixQuery("itemName", q).boost(12.0f));
-
-            // 4. Cross-fields: query terms spread across name/brand/description/category
-            //    AND operator means ALL terms must appear somewhere across the named fields
-            disMax.add(QueryBuilders.multiMatchQuery(q)
-                    .field("itemName", 3.0f)
-                    .field("brand", 2.0f)
-                    .field("description", 1.0f)
-                    .field("category.text", 2.0f)
-                    .type(MultiMatchQueryBuilder.Type.CROSS_FIELDS)
-                    .operator(Operator.AND)
-                    .boost(5.0f));
-
-            // 5. Fuzzy best-fields: tolerates typos up to Levenshtein distance AUTO (1–2 edits)
-            disMax.add(QueryBuilders.multiMatchQuery(q)
-                    .field("itemName", 2.0f)
-                    .field("brand", 1.5f)
-                    .field("description", 1.0f)
-                    .type(MultiMatchQueryBuilder.Type.BEST_FIELDS)
-                    .fuzziness(Fuzziness.AUTO)
-                    .prefixLength(2)
-                    .boost(2.0f));
-
-            if (!expanded.equals(q)) {
-                disMax.add(QueryBuilders.multiMatchQuery(expanded)
-                        .field("itemName", 2.0f)
-                        .field("brand", 1.5f)
-                        .field("description", 1.0f)
-                        .field("category.text", 2.0f)
-                        .type(MultiMatchQueryBuilder.Type.BEST_FIELDS)
-                        .operator(Operator.OR)
-                        .boost(1.5f));
-            }
+            BoolQueryBuilder textQuery = QueryBuilders.boolQuery()
+                    // 1. Exact SKU lookup — highest priority
+                    .should(QueryBuilders.termQuery("sku", q).boost(20.0f))
+                    // 2. Name and description should match naturally first
+                    .should(QueryBuilders.matchQuery("itemName", q).operator(Operator.OR).boost(10.0f))
+                    .should(QueryBuilders.matchQuery("description", q).operator(Operator.OR).boost(5.0f))
+                    .should(QueryBuilders.matchQuery("category.text", q).operator(Operator.OR).boost(4.0f))
+                    // 3. Search-as-you-type: prefix / n-gram autocomplete on itemName.suggest sub-fields
+                    .should(QueryBuilders.multiMatchQuery(q)
+                            .field("itemName.suggest")
+                            .field("itemName.suggest._2gram")
+                            .field("itemName.suggest._3gram")
+                            .type(MultiMatchQueryBuilder.Type.BOOL_PREFIX)
+                            .boost(9.0f))
+                    // 4. Phrase prefix on itemName for high-precision partial matches
+                    .should(QueryBuilders.matchPhrasePrefixQuery("itemName", q).boost(8.0f))
+                    // 5. Broader best-fields matching across the main product fields
+                    .should(QueryBuilders.multiMatchQuery(q)
+                            .field("itemName", 3.0f)
+                            .field("brand", 2.0f)
+                            .field("description", 2.0f)
+                            .field("category.text", 2.0f)
+                            .type(MultiMatchQueryBuilder.Type.BEST_FIELDS)
+                            .operator(Operator.OR)
+                            .fuzziness(Fuzziness.AUTO)
+                            .prefixLength(1)
+                            .boost(4.0f))
+                    .should(QueryBuilders.multiMatchQuery(q)
+                            .field("itemName", 2.0f)
+                            .field("brand", 1.5f)
+                            .field("description", 1.5f)
+                            .field("category.text", 1.5f)
+                            .type(MultiMatchQueryBuilder.Type.CROSS_FIELDS)
+                            .operator(Operator.OR)
+                            .boost(3.0f))
+                    .minimumShouldMatch(1);
 
             // function_score: boost in-stock and discounted items without zeroing out others
             // boostMode=SUM adds function bonuses on top of query score rather than multiplying
@@ -108,7 +92,7 @@ public class ItemSearchService {
                     )
             };
 
-            outerBool.must(QueryBuilders.functionScoreQuery(disMax, functions)
+            outerBool.must(QueryBuilders.functionScoreQuery(textQuery, functions)
                     .boostMode(CombineFunction.SUM)
                     .scoreMode(FunctionScoreQuery.ScoreMode.SUM));
 
@@ -116,14 +100,6 @@ public class ItemSearchService {
             outerBool.must(QueryBuilders.matchAllQuery());
         }
 
-        // Filters run in cached bitset context — zero scoring cost
-        if (category != null && !category.isBlank()) {
-            // category is mapped as Keyword main field — exact term match
-            outerBool.filter(QueryBuilders.termQuery("category", category));
-        }
-        if (brand != null && !brand.isBlank()) {
-            outerBool.filter(QueryBuilders.termQuery("brand.keyword", brand));
-        }
         if (inStock != null) {
             outerBool.filter(QueryBuilders.termQuery("inStock", inStock));
         }
@@ -171,48 +147,5 @@ public class ItemSearchService {
         return new ArrayList<>(unique.values()).stream()
                 .limit(Math.max(1, Math.min(limit, 60)))
                 .collect(Collectors.toList());
-    }
-
-    private String expandQuery(String query) {
-        Set<String> terms = new LinkedHashSet<>();
-        for (String token : query.toLowerCase().split("[^a-z0-9]+")) {
-            if (token.isBlank()) {
-                continue;
-            }
-            terms.add(token);
-            switch (token) {
-                case "kid":
-                case "kids":
-                case "child":
-                case "children":
-                case "toddler":
-                    terms.add("baby");
-                    terms.add("toy");
-                    terms.add("toys");
-                    break;
-                case "toy":
-                case "toys":
-                case "game":
-                case "games":
-                    terms.add("kids");
-                    terms.add("baby");
-                    break;
-                case "grocery":
-                    terms.add("food");
-                    terms.add("essentials");
-                    break;
-                case "home":
-                    terms.add("garden");
-                    terms.add("tools");
-                    break;
-                case "fashion":
-                    terms.add("clothing");
-                    terms.add("shoes");
-                    break;
-                default:
-                    break;
-            }
-        }
-        return String.join(" ", terms);
     }
 }

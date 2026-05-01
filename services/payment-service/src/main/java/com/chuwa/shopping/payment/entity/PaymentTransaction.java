@@ -78,6 +78,9 @@ public class PaymentTransaction {
     @Column(name = "order_sync_completed", nullable = false)
     private Boolean orderSyncCompleted = Boolean.FALSE;
 
+    @Column(name = "inventory_adjusted", nullable = false)
+    private Boolean inventoryAdjusted = Boolean.FALSE;
+
     @Column(name = "retry_count", nullable = false)
     private Integer retryCount = 0;
 
@@ -224,6 +227,14 @@ public class PaymentTransaction {
 
     public void setOrderSyncCompleted(Boolean orderSyncCompleted) {
         this.orderSyncCompleted = orderSyncCompleted;
+    }
+
+    public Boolean getInventoryAdjusted() {
+        return inventoryAdjusted;
+    }
+
+    public void setInventoryAdjusted(Boolean inventoryAdjusted) {
+        this.inventoryAdjusted = inventoryAdjusted;
     }
 
     public Instant getProcessedAt() {

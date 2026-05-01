@@ -21,6 +21,8 @@ public interface ItemService {
 
     List<String> getCategories();
 
+    List<ItemDto> getItemsByCategory(String category, int limit);
+
     List<ItemDto> searchItems(String query, String category, String brand, Boolean inStock, int limit);
 
     InventoryDto updateInventory(String itemId, InventoryDto inventoryDto);
