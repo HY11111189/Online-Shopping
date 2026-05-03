@@ -72,6 +72,7 @@ public class OrderMapper {
         dto.setTotalAmount(order.getTotalAmount());
         dto.setShippingAddress(toAddressSnapshotDto(order.getShippingAddress()));
         dto.setBillingAddress(toAddressSnapshotDto(order.getBillingAddress()));
+        dto.setPaymentMethod(order.getPaymentMethod());
         dto.setItems(order.getItems().stream().map(this::toOrderLineItemDto).collect(Collectors.toList()));
         dto.setCreateRequestId(order.getCreateRequestId());
         dto.setLastUpdateRequestId(order.getLastUpdateRequestId());

@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import { useSession } from '../app/SessionProvider'
 import { api } from '../lib/api'
 import { dateLabel, fulfillmentOf, fullAddress, money, originalPriceFromDiscount } from '../lib/format'
-import { canCancel, canRefund } from '../lib/orderRules'
+import { orderAction, orderActionLabel } from '../lib/orderRules'
 import { useProductLookupBySku } from '../lib/useProductLookup'
 import { signinUrl } from '../lib/session'
 
@@ -15,6 +16,7 @@ export function ConfirmationPage() {
     return <Navigate replace to={signinUrl(`${window.location.pathname}${window.location.search}`)} />
   }
   const queryClient = useQueryClient()
+  const [actionError, setActionError] = useState('')
   const { orderNumber: routeOrderNumber = '' } = useParams()
   const location = useLocation()
   const orderNumber = routeOrderNumber || new URLSearchParams(location.search).get('orderNumber') || ''
@@ -43,31 +45,45 @@ export function ConfirmationPage() {
   const orderDiscount = Math.max(0, originalSubtotal - discountedSubtotal)
   const amountPaid = Number(order?.totalAmount || 0)
   const cancelMutation = useMutation({
-    mutationFn: () => (order?.status === 'PAID' && order?.paymentReference
-      ? (canCancel(order)
-          ? api.cancelPayment(session.token, order.paymentReference, {
-              idempotencyKey: `cancel-${Date.now()}`,
-              amount: order.totalAmount,
-              externalReference: order.orderNumber,
-            })
-          : api.refundPayment(session.token, order.paymentReference, {
-              idempotencyKey: `refund-${Date.now()}`,
-              amount: order.totalAmount,
-              externalReference: order.orderNumber,
-            }))
-      : api.cancelOrder(session.token, orderNumber, {
-          cancelRequestId: `cancel-${Date.now()}`,
-          statusReason: 'Cancelled by customer',
-        })),
+    mutationFn: () => {
+      const action = orderAction(order)
+      if (!action) {
+        throw new Error('This order is already finalized.')
+      }
+      if (order?.status === 'PAID' && order?.paymentReference) {
+        if (action === 'cancel') {
+          return api.cancelPayment(session.token, order.paymentReference, {
+            idempotencyKey: `cancel-${Date.now()}`,
+            amount: order.totalAmount,
+            externalReference: order.orderNumber,
+          })
+        }
+        return api.refundPayment(session.token, order.paymentReference, {
+          idempotencyKey: `refund-${Date.now()}`,
+          amount: order.totalAmount,
+          externalReference: order.orderNumber,
+        })
+      }
+      return api.cancelOrder(session.token, orderNumber, {
+        cancelRequestId: `cancel-${Date.now()}`,
+        statusReason: 'Cancelled by customer',
+      })
+    },
     onSuccess: async () => {
+      setActionError('')
       await queryClient.invalidateQueries({ queryKey: ['confirmation-order', orderNumber] })
       await queryClient.invalidateQueries({ queryKey: ['orders', session.customerId] })
     },
+    onError: (error) => setActionError(error?.message || 'Unable to update this order right now.'),
   })
 
   const isCancelled = order?.status === 'CANCELLED'
-  const statusClass = isCancelled ? 'order-status-cancelled' : 'order-status-paid'
-  const statusLabel = isCancelled ? 'Order cancelled' : order?.status || 'PAID'
+  const isRefunded = order?.status === 'REFUNDED'
+  const isTerminal = isCancelled || isRefunded
+  const orderActionValue = orderAction(order)
+  const orderButtonLabel = orderActionLabel(order)
+  const statusClass = isCancelled ? 'order-status-cancelled' : isRefunded ? 'order-status-refunded' : 'order-status-paid'
+  const statusLabel = isCancelled ? 'Order cancelled' : isRefunded ? 'Order refunded' : order?.status || 'PAID'
 
   function renderItems(itemList) {
     return itemList.map((item) => {
@@ -94,9 +110,9 @@ export function ConfirmationPage() {
       {/* Status banner */}
       <div className="order-status-banner">
         <div className="order-status-banner-copy">
-          <p className="eyebrow">{isCancelled ? 'Order details' : 'Order confirmation'}</p>
-          <h2>{isCancelled ? 'Order cancelled' : 'Your order is confirmed'}</h2>
-          <p>{isCancelled ? 'This order has been cancelled.' : 'Thanks for your purchase! We\'re getting your items ready.'}</p>
+          <p className="eyebrow">{isTerminal ? 'Order details' : 'Order confirmation'}</p>
+          <h2>{isCancelled ? 'Order cancelled' : isRefunded ? 'Order refunded' : 'Your order is confirmed'}</h2>
+          <p>{isCancelled ? 'This order has been cancelled.' : isRefunded ? 'This order has been refunded.' : 'Thanks for your purchase! We\'re getting your items ready.'}</p>
         </div>
         <span className={`order-status-badge ${statusClass}`} style={{ marginLeft: 'auto', alignSelf: 'flex-start' }}>{statusLabel}</span>
       </div>
@@ -119,6 +135,8 @@ export function ConfirmationPage() {
           <div className="order-receipt-row receipt-total"><span className="receipt-label">Amount you paid</span><span className="receipt-value">{money(amountPaid, order?.currencyCode || 'USD')}</span></div>
         </div>
       </div>
+
+      {actionError ? <div className="message-box" style={{ marginTop: 16 }}>{actionError}</div> : null}
 
       {/* Shipping items */}
       {shippingItems.length ? (
@@ -145,14 +163,16 @@ export function ConfirmationPage() {
       ) : null}
 
       <div className="inline-actions" style={{ marginTop: 20 }}>
-        <button
-          className="secondary-button"
-          type="button"
-          onClick={() => cancelMutation.mutate()}
-          disabled={!(canCancel(order) || canRefund(order)) || cancelMutation.isPending}
-        >
-          {isCancelled ? 'Order cancelled' : 'Cancel order'}
-        </button>
+        {orderButtonLabel ? (
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => cancelMutation.mutate()}
+            disabled={!orderActionValue || cancelMutation.isPending}
+          >
+            {orderButtonLabel}
+          </button>
+        ) : null}
         <Link className="primary-button" to="/index.html">Continue shopping</Link>
         <Link className="secondary-button" to="/account.html">View account</Link>
       </div>

@@ -2803,6 +2803,12 @@ body:not([data-page="home"]) .brand-burst {
     gap: 12px;
 }
 
+.assistant-chat-shell-agent {
+    right: auto;
+    left: 20px;
+    align-items: flex-start;
+}
+
 .assistant-chat-toggle {
     display: inline-flex;
     align-items: center;
@@ -3062,6 +3068,13 @@ body:not([data-page="home"]) .brand-burst {
         right: 12px;
         left: 12px;
         bottom: 12px;
+        align-items: stretch;
+    }
+
+    .assistant-chat-shell-agent {
+        right: 12px;
+        left: 12px;
+        bottom: 120px;
         align-items: stretch;
     }
 

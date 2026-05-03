@@ -12,6 +12,8 @@ public interface OrderService {
 
     OrderDto createOrder(OrderCreateRequestDto requestDto);
 
+    OrderDto placeOrder(String orderNumber);
+
     OrderDto updateOrder(String orderNumber, OrderUpdateRequestDto requestDto);
 
     OrderDto cancelOrder(String orderNumber, OrderCancelRequestDto requestDto);

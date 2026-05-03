@@ -13,11 +13,12 @@ import com.chuwa.shopping.dto.payment.PaymentStatus;
 import com.chuwa.shopping.exception.ShoppingResourceNotFoundException;
 import com.chuwa.shopping.payment.dao.PaymentTransactionRepository;
 import com.chuwa.shopping.payment.dto.PaymentDto;
-import com.chuwa.shopping.payment.dto.PaymentRequestDto;
 import com.chuwa.shopping.payment.dto.PaymentUpdateRequestDto;
 import com.chuwa.shopping.payment.dto.RefundRequestDto;
+import com.chuwa.shopping.dto.payment.PaymentRequestDto;
 import com.chuwa.shopping.payment.entity.PaymentTransaction;
 import com.chuwa.shopping.payment.mapper.PaymentMapper;
+import com.chuwa.shopping.payment.messaging.PaymentProcessedEventPublisher;
 import com.chuwa.shopping.payment.service.PaymentService;
 import org.springframework.stereotype.Service;
 
@@ -39,15 +40,18 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentMapper paymentMapper;
     private final OrderServiceClient orderServiceClient;
     private final ItemServiceClient itemServiceClient;
+    private final PaymentProcessedEventPublisher paymentProcessedEventPublisher;
 
     public PaymentServiceImpl(PaymentTransactionRepository paymentTransactionRepository,
                               PaymentMapper paymentMapper,
                               OrderServiceClient orderServiceClient,
-                              ItemServiceClient itemServiceClient) {
+                              ItemServiceClient itemServiceClient,
+                              PaymentProcessedEventPublisher paymentProcessedEventPublisher) {
         this.paymentTransactionRepository = paymentTransactionRepository;
         this.paymentMapper = paymentMapper;
         this.orderServiceClient = orderServiceClient;
         this.itemServiceClient = itemServiceClient;
+        this.paymentProcessedEventPublisher = paymentProcessedEventPublisher;
     }
 
     @Override
@@ -55,6 +59,27 @@ public class PaymentServiceImpl implements PaymentService {
         return paymentTransactionRepository.findByIdempotencyKey(requestDto.getIdempotencyKey())
                 .map(paymentMapper::toPaymentDto)
                 .orElseGet(() -> createOrUpdatePayment(requestDto));
+    }
+
+    @Override
+    public PaymentDto processPayment(PaymentRequestDto requestDto) {
+        PaymentDto payment = submitPayment(requestDto);
+        if (payment.getPaymentStatus() == PaymentStatus.CAPTURED
+                || payment.getPaymentStatus() == PaymentStatus.REFUNDED
+                || payment.getPaymentStatus() == PaymentStatus.CANCELLED) {
+            paymentProcessedEventPublisher.publish(payment,
+                    payment.getPaymentStatus() == PaymentStatus.CAPTURED ? OrderStatus.PAID : OrderStatus.FAILED,
+                    payment.getPaymentStatus() == PaymentStatus.CAPTURED ? "Payment captured" : "Payment processing finished");
+            return payment;
+        }
+
+        PaymentUpdateRequestDto captureRequest = new PaymentUpdateRequestDto();
+        captureRequest.setPaymentStatus(PaymentStatus.CAPTURED);
+        captureRequest.setGatewayResponseCode("00");
+        captureRequest.setGatewayResponseMessage("Approved");
+        PaymentDto captured = capturePaymentWithoutOrderSync(payment.getPaymentNumber(), captureRequest);
+        paymentProcessedEventPublisher.publish(captured, OrderStatus.PAID, "Payment captured");
+        return captured;
     }
 
     @Override
@@ -83,6 +108,20 @@ public class PaymentServiceImpl implements PaymentService {
             syncOrderPayment(payment.getOrderId(), payment.getPaymentNumber(), PaymentStatus.FAILED, OrderStatus.FAILED, "Payment failed");
         }
         return savedPayment;
+    }
+
+    private PaymentDto capturePaymentWithoutOrderSync(String paymentNumber, PaymentUpdateRequestDto requestDto) {
+        PaymentTransaction payment = getPaymentEntity(paymentNumber);
+        payment.setPaymentStatus(requestDto.getPaymentStatus());
+        payment.setExternalReference(requestDto.getExternalReference());
+        payment.setGatewayResponseCode(requestDto.getGatewayResponseCode());
+        payment.setGatewayResponseMessage(requestDto.getGatewayResponseMessage());
+        payment.setFailureReason(requestDto.getFailureReason());
+        payment.setGatewayUpdatedAt(Instant.now());
+        if (requestDto.getPaymentStatus() == PaymentStatus.CAPTURED || requestDto.getPaymentStatus() == PaymentStatus.AUTHORIZED) {
+            payment.setProcessedAt(Instant.now());
+        }
+        return paymentMapper.toPaymentDto(paymentTransactionRepository.save(payment));
     }
 
     @Override

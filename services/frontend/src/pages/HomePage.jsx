@@ -9,6 +9,7 @@ import { isSessionActive } from '../lib/session'
 import { loadWishlist, saveWishlist } from '../lib/wishlist'
 import { signinUrl } from '../lib/session'
 import { ShoppingAssistantChat } from '../components/ShoppingAssistantChat'
+import { ShoppingAgentChat } from '../components/ShoppingAgentChat'
 
 function CatalogTile({ addedToCart, addToCart, addedToWishlist, item, saved, toggleWishlist, dealLabel = '' }) {
   const originalPrice = originalPriceFromDiscount(item.unitPrice, item.discountPercent)
@@ -226,6 +227,7 @@ export function HomePage() {
       ) : null}
 
       {!searchMode && !category ? <ShoppingAssistantChat /> : null}
+      {!searchMode && !category ? <ShoppingAgentChat /> : null}
 
       {!searchMode && !category ? (
         <section className="home-category-blocks" aria-label="Popular product picks" style={{ marginTop: 18 }}>

@@ -4,7 +4,7 @@ import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-route
 import { useSession } from '../app/SessionProvider'
 import { api } from '../lib/api'
 import { dateLabel, fulfillmentOf, fullAddress, money } from '../lib/format'
-import { canCancel, canRefund } from '../lib/orderRules'
+import { orderAction, orderActionLabel } from '../lib/orderRules'
 import { useProductLookupBySku } from '../lib/useProductLookup'
 import { signinUrl } from '../lib/session'
 
@@ -44,25 +44,36 @@ export function OrderStatusPage() {
   }, 0)
   const orderDiscount = Number(order?.discountAmount || discountTotal || 0)
   const cancelOrderMutation = useMutation({
-    mutationFn: () => order?.status === 'PAID' && order?.paymentReference
-      ? (canCancel(order)
-          ? api.cancelPayment(session.token, order.paymentReference, {
-              idempotencyKey: `cancel-${Date.now()}`,
-              amount: order.totalAmount,
-              externalReference: order.orderNumber,
-            })
-          : api.refundPayment(session.token, order.paymentReference, {
-              idempotencyKey: `refund-${Date.now()}`,
-              amount: order.totalAmount,
-              externalReference: order.orderNumber,
-            }))
-      : api.cancelOrder(session.token, orderNumber, {
-          cancelRequestId: `cancel-${Date.now()}`,
-          statusReason: 'Cancelled by customer',
-        }),
+    mutationFn: () => {
+      const action = orderAction(order)
+      if (!action) {
+        throw new Error('This order is already finalized.')
+      }
+      if (order?.status === 'PAID' && order?.paymentReference) {
+        if (action === 'cancel') {
+          return api.cancelPayment(session.token, order.paymentReference, {
+            idempotencyKey: `cancel-${Date.now()}`,
+            amount: order.totalAmount,
+            externalReference: order.orderNumber,
+          })
+        }
+        return api.refundPayment(session.token, order.paymentReference, {
+          idempotencyKey: `refund-${Date.now()}`,
+          amount: order.totalAmount,
+          externalReference: order.orderNumber,
+        })
+      }
+      return api.cancelOrder(session.token, orderNumber, {
+        cancelRequestId: `cancel-${Date.now()}`,
+        statusReason: 'Cancelled by customer',
+      })
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['order', orderNumber] })
       await queryClient.invalidateQueries({ queryKey: ['orders', session.customerId] })
+    },
+    onError: (error) => {
+      console.error(error)
     },
   })
   useEffect(() => {
@@ -78,6 +89,8 @@ export function OrderStatusPage() {
 
   const statusLabel = order?.status === 'CANCELLED' ? 'Order cancelled' : order?.status || 'Processing'
   const statusClass = { PAID: 'order-status-paid', CANCELLED: 'order-status-cancelled', REFUNDED: 'order-status-refunded', FAILED: 'order-status-failed' }[order?.status] || 'order-status-pending'
+  const orderActionValue = orderAction(order)
+  const orderButtonLabel = orderActionLabel(order)
 
   function renderItems(itemList) {
     return itemList.map((item) => {
@@ -155,14 +168,16 @@ export function OrderStatusPage() {
       ) : null}
 
       <div className="inline-actions" style={{ marginTop: 20 }}>
+        {orderButtonLabel ? (
           <button
             className="secondary-button"
             type="button"
             onClick={() => cancelOrderMutation.mutate()}
-            disabled={!(canCancel(order) || canRefund(order)) || cancelOrderMutation.isPending}
+            disabled={!orderActionValue || cancelOrderMutation.isPending}
           >
-            {order?.status === 'CANCELLED' ? 'Order cancelled' : 'Cancel order'}
+            {orderButtonLabel}
           </button>
+        ) : null}
         <Link className="primary-button" to="/index.html">Continue shopping</Link>
         <Link className="secondary-button" to="/account.html">View account</Link>
       </div>

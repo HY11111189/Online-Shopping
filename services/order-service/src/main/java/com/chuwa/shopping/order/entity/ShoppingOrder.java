@@ -1,6 +1,7 @@
 package com.chuwa.shopping.order.entity;
 
 import com.chuwa.shopping.dto.order.OrderStatus;
+import com.chuwa.shopping.dto.payment.PaymentMethod;
 import org.springframework.data.cassandra.core.mapping.CassandraType;
 import org.springframework.data.cassandra.core.mapping.Column;
 import org.springframework.data.cassandra.core.mapping.PrimaryKey;
@@ -48,6 +49,9 @@ public class ShoppingOrder {
 
     @Column("billing_address")
     private AddressSnapshot billingAddress;
+
+    @Column("payment_method")
+    private PaymentMethod paymentMethod;
 
     @CassandraType(type = CassandraType.Name.LIST, typeArguments = CassandraType.Name.UDT, userTypeName = "order_line_items")
     private List<OrderLineItem> items = new ArrayList<>();
@@ -179,6 +183,14 @@ public class ShoppingOrder {
 
     public void setBillingAddress(AddressSnapshot billingAddress) {
         this.billingAddress = billingAddress;
+    }
+
+    public PaymentMethod getPaymentMethod() {
+        return paymentMethod;
+    }
+
+    public void setPaymentMethod(PaymentMethod paymentMethod) {
+        this.paymentMethod = paymentMethod;
     }
 
     public List<OrderLineItem> getItems() {

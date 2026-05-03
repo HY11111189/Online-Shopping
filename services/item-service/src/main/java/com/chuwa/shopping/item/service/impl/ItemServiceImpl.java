@@ -15,6 +15,7 @@ import com.chuwa.shopping.item.search.ItemSearchIndexer;
 import com.chuwa.shopping.item.search.ItemSearchService;
 import com.chuwa.shopping.item.service.ItemService;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -176,16 +177,19 @@ public class ItemServiceImpl implements ItemService {
                 throw new IllegalArgumentException("Unsupported inventory adjustment type");
         }
 
-        ItemDocument adjusted = mongoTemplate.findAndModify(query, update, ItemDocument.class);
+        ItemDocument adjusted = mongoTemplate.findAndModify(query, update,
+                FindAndModifyOptions.options().returnNew(true), ItemDocument.class);
         if (adjusted == null) {
             throw new IllegalStateException("Inventory adjustment could not be applied for sku " + sku);
         }
-        adjusted = itemRepository.findBySku(sku)
-                .orElseThrow(() -> new ShoppingResourceNotFoundException("Item", "sku", sku));
         refreshInStock(adjusted.getInventory());
-        adjusted.setUpdatedAt(LocalDateTime.now());
-        ItemDocument saved = itemRepository.save(adjusted);
-        indexIfAvailable(saved);
+        // Update only the derived inStock flag — never save the full document, which would
+        // overwrite concurrent findAndModify decrements from other threads.
+        mongoTemplate.updateFirst(
+                Query.query(Criteria.where("sku").is(sku)),
+                new Update().set("inventory.in_stock", adjusted.getInventory() != null && Boolean.TRUE.equals(adjusted.getInventory().getInStock())),
+                ItemDocument.class);
+        indexIfAvailable(adjusted);
         return toInventoryAdjustmentResult(adjusted, requestDto, true);
     }
 

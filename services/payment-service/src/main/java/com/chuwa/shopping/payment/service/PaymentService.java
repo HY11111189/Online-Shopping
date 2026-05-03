@@ -1,13 +1,15 @@
 package com.chuwa.shopping.payment.service;
 
 import com.chuwa.shopping.payment.dto.PaymentDto;
-import com.chuwa.shopping.payment.dto.PaymentRequestDto;
+import com.chuwa.shopping.dto.payment.PaymentRequestDto;
 import com.chuwa.shopping.payment.dto.PaymentUpdateRequestDto;
 import com.chuwa.shopping.payment.dto.RefundRequestDto;
 
 public interface PaymentService {
 
     PaymentDto submitPayment(PaymentRequestDto requestDto);
+
+    PaymentDto processPayment(PaymentRequestDto requestDto);
 
     PaymentDto updatePayment(String paymentNumber, PaymentUpdateRequestDto requestDto);
 

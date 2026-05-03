@@ -26,6 +26,11 @@ public class OrderController {
         return new ResponseEntity<>(orderService.createOrder(requestDto), HttpStatus.CREATED);
     }
 
+    @PostMapping("/{orderNumber}/place")
+    public ResponseEntity<OrderDto> placeOrder(@PathVariable String orderNumber) {
+        return ResponseEntity.ok(orderService.placeOrder(orderNumber));
+    }
+
     @PutMapping("/{orderNumber}")
     public ResponseEntity<OrderDto> updateOrder(@PathVariable String orderNumber, @RequestBody OrderUpdateRequestDto requestDto) {
         return ResponseEntity.ok(orderService.updateOrder(orderNumber, requestDto));

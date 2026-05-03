@@ -103,7 +103,10 @@ export function CheckoutPage() {
   })
 
   const createOrderMutation = useMutation({
-    mutationFn: (payload) => api.createOrder(session.token, payload),
+    mutationFn: async (payload) => {
+      const draftOrder = await api.createOrder(session.token, payload)
+      return api.placeOrder(session.token, draftOrder.orderNumber)
+    },
     onSuccess: async (order) => {
       for (const itemId of selectedItemIds) {
         await api.removeCartItem(session.token, session.customerId, itemId)

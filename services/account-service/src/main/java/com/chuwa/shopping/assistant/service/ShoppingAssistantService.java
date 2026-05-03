@@ -402,8 +402,8 @@ public class ShoppingAssistantService {
         // Order flow:
         // 1) resolve the selected product
         // 2) load the signed-in account details needed for checkout
-        // 3) build the order request for order-service
-        // 4) wait for the final order state before returning the assistant response
+        // 3) create a draft order in order-service
+        // 4) place the draft order and return the checkout result
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent("PLACE_ORDER");
         response.setState("choose_product");
@@ -500,14 +500,18 @@ public class ShoppingAssistantService {
                     : cartItem.getLineTotal().toPlainString());
         }
 
-        OrderDto order;
+        OrderDto draftOrder;
         try {
-            order = readValue(sendJson(orderServiceUrl("/api/v1/shopping/orders"), request, token), OrderDto.class);
+            draftOrder = readValue(sendJson(orderServiceUrl("/api/v1/shopping/orders"), request, token), OrderDto.class);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to create draft order", ex);
+        }
+        OrderDto latestOrder;
+        try {
+            latestOrder = readValue(sendRequest(orderServiceUrl("/api/v1/shopping/orders/" + urlEncode(draftOrder.getOrderNumber()) + "/place"), token, "POST"), OrderDto.class);
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to place order", ex);
         }
-
-        OrderDto latestOrder = waitForLatestOrderState(order.getOrderNumber(), token);
 
         response.setOrderNumber(latestOrder.getOrderNumber());
         response.setOrderStatus(latestOrder.getStatus() == null ? "" : latestOrder.getStatus().name());
@@ -693,18 +697,6 @@ public class ShoppingAssistantService {
             return orders;
         } catch (Exception ex) {
             return new ArrayList<>();
-        }
-    }
-
-    private Optional<OrderDto> getOrder(String orderNumber, String token) {
-        if (orderNumber == null || orderNumber.isBlank()) {
-            return Optional.empty();
-        }
-        try {
-            JsonNode node = readJson(sendRequest(orderServiceUrl("/api/v1/shopping/orders/" + urlEncode(orderNumber)), token, "GET"));
-            return Optional.of(objectMapper.treeToValue(node, OrderDto.class));
-        } catch (Exception ex) {
-            return Optional.empty();
         }
     }
 
@@ -1018,25 +1010,6 @@ public class ShoppingAssistantService {
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to add item to cart", ex);
         }
-    }
-
-    private OrderDto waitForLatestOrderState(String orderNumber, String token) {
-        // order-service writes the order first and then the payment flow updates status.
-        // Poll a few times so the assistant can return the final visible state.
-        OrderDto latest = getOrder(orderNumber, token).orElseThrow(() -> new IllegalStateException("Failed to load the created order"));
-        for (int attempt = 0; attempt < 4; attempt++) {
-            if (latest.getStatus() != null && latest.getStatus() != OrderStatus.CREATED) {
-                return latest;
-            }
-            try {
-                Thread.sleep(700);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                return latest;
-            }
-            latest = getOrder(orderNumber, token).orElse(latest);
-        }
-        return latest;
     }
 
     private ShoppingAssistantOrderDto toAssistantOrder(OrderDto order) {

@@ -1,10 +1,10 @@
 package com.chuwa.shopping.payment.controller;
 
 import com.chuwa.shopping.payment.dto.PaymentDto;
-import com.chuwa.shopping.payment.dto.PaymentRequestDto;
 import com.chuwa.shopping.payment.dto.PaymentUpdateRequestDto;
 import com.chuwa.shopping.payment.dto.RefundRequestDto;
 import com.chuwa.shopping.payment.service.PaymentService;
+import com.chuwa.shopping.dto.payment.PaymentRequestDto;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

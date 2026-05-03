@@ -19,15 +19,18 @@ Each service owns its own code and data. Services talk to each other over HTTP/F
   - inventory
 - `order-service`
   - cart
+  - synchronous checkout
   - order lifecycle
 - `payment-service`
   - payment and refund flows
+  - publishes payment-result events to Kafka
 - `gateway-service`
   - single browser/API entrypoint
   - routes frontend and API traffic to the right service
 - `shared-lib`
   - Feign clients
   - shared inter-service DTOs and enums
+  - shared Kafka event DTOs
   - shared exception contracts
 
 
@@ -60,7 +63,7 @@ Each business service uses its own database so the data model stays isolated:
 
 
 # Inter-Service Communication
-The services communicate with each other synchronously through Spring Cloud OpenFeign.
+The services communicate with each other through OpenFeign for request/response calls and Kafka for payment-result propagation.
 
 Why Feign is used:
 - it gives typed Java clients instead of manual HTTP code
@@ -69,11 +72,17 @@ Why Feign is used:
 
 Where the clients live:
 - [ItemServiceClient.java](/Users/hhhhh1/Desktop/Training/Project/springboot-shopping/services/shared-lib/src/main/java/com/chuwa/shopping/client/ItemServiceClient.java)
+- [AccountServiceClient.java](/Users/hhhhh1/Desktop/Training/Project/springboot-shopping/services/shared-lib/src/main/java/com/chuwa/shopping/client/AccountServiceClient.java)
 - [OrderServiceClient.java](/Users/hhhhh1/Desktop/Training/Project/springboot-shopping/services/shared-lib/src/main/java/com/chuwa/shopping/client/OrderServiceClient.java)
+- [PaymentServiceClient.java](/Users/hhhhh1/Desktop/Training/Project/springboot-shopping/services/shared-lib/src/main/java/com/chuwa/shopping/client/PaymentServiceClient.java)
 
 Who calls whom:
-- `order-service` calls `item-service` to load item details and adjust inventory
-- `payment-service` calls `order-service` to read orders and sync payment status
+- `order-service` calls `item-service` through Feign to load item details and adjust inventory
+- `order-service` calls `account-service` through Feign for checkout profile data
+- `order-service` calls `payment-service` through Feign for synchronous payment capture
+- `payment-service` calls `order-service` through Feign to sync refund/cancel results
+- `payment-service` publishes payment-result events to Kafka
+- `order-service` consumes payment-result events from Kafka to keep order state in sync
 
 Where Feign is enabled:
 - [OrderServiceApplication.java](/Users/hhhhh1/Desktop/Training/Project/springboot-shopping/services/order-service/src/main/java/com/chuwa/shopping/orderservice/OrderServiceApplication.java)
@@ -81,9 +90,9 @@ Where Feign is enabled:
 
 Public routes vs internal routes:
 - public browser/API routes go through the gateway, like `/api/v1/shopping/orders/**`
-- internal Feign routes use `/internal/api/v1/...`
-- the internal routes are for service-to-service calls only, not direct browser access
-This keeps the public API stable while allowing services to call each other directly when needed.
+- internal service routes use `/internal/api/v1/...`
+- those routes are for service-to-service calls only and are reached through Feign clients, not direct browser access
+This keeps the public API stable while allowing services to call each other without exposing internal details to the frontend.
 
 DTO Rule
 - Service-local DTOs stay inside their own service.
@@ -96,6 +105,7 @@ DTO Rule
 This means:
 - `shared-lib` is for Feign contracts and shared error types only.
 - Business entities, repositories, and service-internal request payloads do not go into `shared-lib`.
+- Shared checkout DTOs also live here now, including `PaymentRequestDto` and `PaymentProcessingResultDto`.
 
 
 # API Contract
@@ -126,7 +136,8 @@ General rules:
 | order | PUT | `/api/v1/shopping/carts/{customerId}/items/{itemId}` | update a cart item |
 | order | DELETE | `/api/v1/shopping/carts/{customerId}/items/{itemId}` | remove a cart item |
 | order | POST | `/api/v1/shopping/carts/{customerId}/checkout` | checkout the cart |
-| order | POST | `/api/v1/shopping/orders` | create an order |
+| order | POST | `/api/v1/shopping/orders` | create a draft order |
+| order | POST | `/api/v1/shopping/orders/{orderNumber}/place` | place a draft order |
 | order | PUT | `/api/v1/shopping/orders/{orderNumber}` | update an order |
 | order | POST | `/api/v1/shopping/orders/{orderNumber}/cancel` | cancel an order |
 | order | GET | `/api/v1/shopping/orders/{orderNumber}` | get an order by number |
@@ -142,6 +153,8 @@ General rules:
 | --- | --- | --- | --- |
 | order-service | GET | `/internal/api/v1/shopping/items/sku/{sku}` | load authoritative item data |
 | order-service | POST | `/internal/api/v1/shopping/items/sku/{sku}/inventory/adjustments` | update inventory after order/payment events |
+| order-service | POST | `/internal/api/v1/shopping/payments/process` | synchronous payment capture during checkout through `PaymentServiceClient` |
+| payment-service | POST | `/internal/api/v1/shopping/payments/process` | internal synchronous payment processing entrypoint |
 | payment-service | GET | `/internal/api/v1/shopping/orders/{orderNumber}` | load the order before payment |
 | payment-service | POST | `/internal/api/v1/shopping/orders/{orderNumber}/payment` | sync payment status back to order-service |
 
@@ -151,6 +164,7 @@ General rules:
 - order APIs return cart and order DTOs
 - payment APIs return payment DTOs
 - assistant chat returns a structured assistant response with reply text, items, actions, and optional order metadata
+- synchronous checkout returns the final order state immediately, while Kafka only carries the payment-result event back to `order-service` for final-state sync
 
 
 # Spring Security and Auth
@@ -177,35 +191,36 @@ The core auth flow is sign-in, token issuance, and JWT validation.
 The helper controllers are not required for normal app usage.
 
 
-# Checkout Workflow (using Kafka) and Checkout Reliability
-- `order-service` creates the order and publishes `OrderPlacedEvent`.
-- `payment-service` consumes that event and runs the checkout workflow.
-- The checkout workflow is:
-  - reserve stock in `item-service`
-  - capture payment
-  - sync the final payment result back to `order-service`
+# Checkout Workflow and Reliability
+- `order-service` owns the buy flow in two steps.
+- `createOrder` saves a draft order.
+- `placeOrder` reserves stock, calls `payment-service` synchronously, and returns the checkout result.
+- `payment-service` captures the payment and publishes `PaymentProcessedEvent` to Kafka.
+- `order-service` consumes that event to keep the stored order state in sync.
+- The frontend gets the yes/no answer from the synchronous `placeOrder` response, while Kafka back-fills the stored order state.
 
 Concurrency rule:
-- `item-service` owns the inventory truth, stock is decremented atomically inside `item-service`
-- if many customers try to buy the last units, only the first atomic inventory updates succeed
-- the rest fail the stock check, which prevents overselling
+- `item-service` owns the inventory truth, and inventory is changed atomically inside `item-service`.
+- each stock adjustment uses a unique `operationId`.
+- if many customers try to buy the last units, only the first valid atomic adjustment succeeds.
+- the rest fail the stock check, which prevents overselling.
+- this is what makes race-buy safe: the stock check and stock update happen together in one service.
 
 At-least-once delivery:
 - Kafka redelivers a message until the consumer acknowledges it.
-- In this app, `payment-service` only acknowledges the Kafka record after the checkout step finishes or a final failure is recorded.
+- In this app, `order-service` acknowledges the payment-result record only after it applies the final state update.
 - If the consumer throws before `acknowledge()`, Kafka will deliver the same event again.
+- this gives us at-least-once delivery for the payment-result event, not exactly-once delivery.
 
 Idempotency:
-- `payment-service` saves the payment row before it throws, so a redelivery resumes from the same checkpoint instead of creating a second payment attempt.
 - `item-service` requires a unique `operationId` for each inventory adjustment, so the same stock change cannot be applied twice.
 - `order-service` stores processed payment sync ids, so the same payment result does not update the order twice.
+If the payment result event is redelivered, `order-service` skips it because the processed sync id is already stored.
 
 Recovery and compensation:
-- If stock was already reserved and payment later fails, `payment-service` restocks before marking the order failed.
-- If payment fails before stock is reserved, the message is not acked and Kafka retries it.
-- Each service saves its own state, retries are safe, and the compensating action is `RESTOCK` when a reserved purchase cannot complete.
-- If payment is captured but the order sync still fails, the saved payment state lets the next retry continue from the same payment record instead of charging again.
-
+- If stock reservation fails, the checkout stops immediately and payment is never attempted.
+- If stock was already reserved and payment later fails, `order-service` restocks before it marks the order failed.
+- Kafka then carries the payment result back to `order-service` so the final order record is consistent even if the response and the event arrive in different orders.
 
 # Product Search
 - Category browsing loads directly from MongoDB.
@@ -226,17 +241,14 @@ Key documents:
 The home page includes a shopping assistant chat widget.
 
 What it can do:
-- search products
-- place an order after the user picks a product
-- look up orders by date range or order number
-
-Flow:
-1. The user sends a message in the chat widget.
-2. The frontend sends `POST /api/v1/shopping/assistant/chat` to the gateway.
-3. `account-service` asks OpenAI to classify intent and extract fields.
-4. The backend uses the returned JSON to decide which service API to cal, turns it into the right service call, and gets the result.
-5. The backend builds assistant response JSON and sends it back.
-6. The frontend renders that response and the action buttons.
+- `SEARCH_PRODUCTS`
+  - show matching products
+  - after the user picks one, they can optionally add it to cart or place the order
+- `PLACE_ORDER`
+  - show matching products
+  - after the user picks one, the assistant places the order directly
+- `LOOKUP_ORDERS`
+  - show matching orders by order number or date range
 
 Example:
 ```json
@@ -254,7 +266,7 @@ Example:
 }
 ```
 
-Backend turns that into:
+Backend turns that into a product search request:
 ```http
 GET /api/v1/shopping/items/search?q=coffee%20maker&limit=4
 ```
@@ -274,10 +286,23 @@ GET /api/v1/shopping/items/search?q=coffee%20maker&limit=4
 }
 ```
 
-Backend turns that into:
+Backend turns that into a draft-order create request:
 ```http
 POST /api/v1/shopping/orders
 ```
+
+Then the backend places that draft order with:
+```http
+POST /api/v1/shopping/orders/{orderNumber}/place
+```
+
+The assistant uses the same synchronous checkout flow as the frontend:
+- the assistant classifies the request into JSON
+- the backend resolves the product
+- `order-service` creates a draft order
+- `order-service` places that draft order, reserves stock, and calls `payment-service`
+- the final order result is returned to the chat UI
+- Kafka is only used afterward to sync the payment result back into `order-service`
 
 ```json
 {
@@ -294,7 +319,7 @@ POST /api/v1/shopping/orders
 }
 ```
 
-Backend turns that into:
+Backend turns that into an order lookup request:
 ```http
 GET /api/v1/shopping/orders/customers/{customerId}
 ```
@@ -346,7 +371,7 @@ Examples:
 
 
 # Local Dev Loop
-Use this when you want to change code without rebuilding Docker images:
+Use this when you want to run services locally without Docker:
 
 ```bash
 cd services
@@ -366,7 +391,7 @@ Notes:
 
 
 # One-Click Startup
-Run the full stack with:
+Run the full stack with one command:
 
 ```bash
 cd services

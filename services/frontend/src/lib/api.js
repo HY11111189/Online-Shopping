@@ -45,6 +45,7 @@ export const api = {
   updateCartItem: (token, customerId, itemId, payload) => apiRequest(`/api/v1/shopping/carts/${customerId}/items/${encodeURIComponent(itemId)}`, { token, method: 'PUT', body: payload }),
   removeCartItem: (token, customerId, itemId) => apiRequest(`/api/v1/shopping/carts/${customerId}/items/${encodeURIComponent(itemId)}`, { token, method: 'DELETE' }),
   createOrder: (token, payload) => apiRequest('/api/v1/shopping/orders', { token, method: 'POST', body: payload }),
+  placeOrder: (token, orderNumber) => apiRequest(`/api/v1/shopping/orders/${encodeURIComponent(orderNumber)}/place`, { token, method: 'POST' }),
   getOrder: (token, orderNumber) => apiRequest(`/api/v1/shopping/orders/${encodeURIComponent(orderNumber)}`, { token }),
   getOrdersByCustomer: (token, customerId) => apiRequest(`/api/v1/shopping/orders/customers/${customerId}`, { token }),
   cancelOrder: (token, orderNumber, payload) => apiRequest(`/api/v1/shopping/orders/${encodeURIComponent(orderNumber)}/cancel`, { token, method: 'POST', body: payload }),
@@ -52,4 +53,5 @@ export const api = {
   cancelPayment: (token, paymentNumber, payload) => apiRequest(`/api/v1/shopping/payments/${encodeURIComponent(paymentNumber)}/cancel`, { token, method: 'POST', body: payload }),
   refundPayment: (token, paymentNumber, payload) => apiRequest(`/api/v1/shopping/payments/${encodeURIComponent(paymentNumber)}/refund`, { token, method: 'POST', body: payload }),
   chatAssistant: (token, payload) => apiRequest('/api/v1/shopping/assistant/chat', { token, method: 'POST', body: payload }),
+  chatAgentAssistant: (token, payload) => apiRequest('/api/v1/shopping/assistant/agent/chat', { token, method: 'POST', body: payload }),
 }

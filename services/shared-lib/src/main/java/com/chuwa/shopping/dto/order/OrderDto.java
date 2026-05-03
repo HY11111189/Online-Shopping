@@ -1,6 +1,7 @@
 package com.chuwa.shopping.dto.order;
 
 import com.chuwa.shopping.dto.order.OrderStatus;
+import com.chuwa.shopping.dto.payment.PaymentMethod;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -24,6 +25,7 @@ public class OrderDto {
     private BigDecimal totalAmount;
     private AddressSnapshotDto shippingAddress;
     private AddressSnapshotDto billingAddress;
+    private PaymentMethod paymentMethod;
     private List<OrderLineItemDto> items = new ArrayList<>();
     private String createRequestId;
     private String lastUpdateRequestId;
@@ -146,6 +148,14 @@ public class OrderDto {
 
     public void setBillingAddress(AddressSnapshotDto billingAddress) {
         this.billingAddress = billingAddress;
+    }
+
+    public PaymentMethod getPaymentMethod() {
+        return paymentMethod;
+    }
+
+    public void setPaymentMethod(PaymentMethod paymentMethod) {
+        this.paymentMethod = paymentMethod;
     }
 
     public List<OrderLineItemDto> getItems() {

@@ -59,13 +59,14 @@ class ApiClient:
                 pass
             raise RuntimeError(f"HTTP {exc.code} {method} {path}: {detail}") from exc
         except urllib.error.URLError as exc:
-            raise RuntimeError(f"{method} {path} failed: {exc.reason}") from exc
+            raise RuntimeError(f"{method} {path} failed against {self.base_url}: {exc.reason}") from exc
 
 
 class RaceRunner:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.public_api = ApiClient(args.base_url, timeout=args.timeout)
+        self.verify_gateway_reachable()
         self.usernames = [value.strip() for value in args.usernames.split(",") if value.strip()]
         if not self.usernames:
             raise RuntimeError("No usernames configured for the race.")
@@ -76,6 +77,18 @@ class RaceRunner:
         self.tax_amount = Decimal(str(args.tax_amount))
         self.discount_amount = Decimal(str(args.discount_amount))
         self.print_lock = threading.Lock()
+
+    def verify_gateway_reachable(self) -> None:
+        probe_url = f"{self.args.base_url.rstrip('/')}/"
+        try:
+            with urllib.request.urlopen(probe_url, timeout=self.args.timeout) as resp:
+                if resp.status // 100 != 2:
+                    raise RuntimeError(f"Gateway base URL responded with HTTP {resp.status}")
+        except urllib.error.URLError as exc:
+            raise RuntimeError(
+                f"Gateway base URL {self.args.base_url} is not reachable. "
+                f"Use http://localhost:8080 when running from source, or a Docker-resolvable gateway hostname inside containers."
+            ) from exc
 
     def bootstrap_item(self) -> Dict[str, Any]:
         bootstrap_token = self.authenticate(self.usernames[0], self.args.password)
@@ -164,9 +177,11 @@ class RaceRunner:
         try:
             order = session["api"].request("POST", "/api/v1/shopping/orders", self.build_order_payload(bot_id, attempt, session))
             order_number = order.get("orderNumber")
+            placed = session["api"].request("POST", f"/api/v1/shopping/orders/{urllib.parse.quote(order_number)}/place")
+            order_number = placed.get("orderNumber") or order_number
             deadline = time.time() + self.args.poll_timeout
-            last_status = order.get("status", "UNKNOWN")
-            payment_reference = order.get("paymentReference")
+            last_status = placed.get("status", order.get("status", "UNKNOWN"))
+            payment_reference = placed.get("paymentReference") or order.get("paymentReference")
             while time.time() < deadline:
                 current = session["api"].request("GET", f"/api/v1/shopping/orders/{urllib.parse.quote(order_number)}")
                 last_status = current.get("status", last_status)

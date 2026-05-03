@@ -1,6 +1,4 @@
-package com.chuwa.shopping.payment.dto;
-
-import com.chuwa.shopping.dto.payment.PaymentMethod;
+package com.chuwa.shopping.dto.payment;
 
 import java.math.BigDecimal;
 

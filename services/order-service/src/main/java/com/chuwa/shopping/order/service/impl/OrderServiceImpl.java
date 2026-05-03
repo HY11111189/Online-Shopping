@@ -1,6 +1,7 @@
 package com.chuwa.shopping.order.service.impl;
 
 import com.chuwa.shopping.client.AccountServiceClient;
+import com.chuwa.shopping.client.PaymentServiceClient;
 import com.chuwa.shopping.exception.ShoppingResourceNotFoundException;
 import com.chuwa.shopping.order.dao.OrderNumberLookupRepository;
 import com.chuwa.shopping.client.ItemServiceClient;
@@ -12,12 +13,14 @@ import com.chuwa.shopping.dto.order.OrderDto;
 import com.chuwa.shopping.dto.order.OrderLineItemDto;
 import com.chuwa.shopping.dto.order.OrderPaymentSyncRequestDto;
 import com.chuwa.shopping.dto.order.OrderStatus;
+import com.chuwa.shopping.dto.payment.PaymentProcessingResultDto;
+import com.chuwa.shopping.dto.payment.PaymentRequestDto;
+import com.chuwa.shopping.dto.payment.PaymentMethod;
 import com.chuwa.shopping.dto.payment.PaymentStatus;
 import com.chuwa.shopping.order.dao.ShoppingOrderRepository;
 import com.chuwa.shopping.order.dto.OrderCancelRequestDto;
 import com.chuwa.shopping.order.dto.OrderCreateRequestDto;
 import com.chuwa.shopping.order.dto.OrderUpdateRequestDto;
-import com.chuwa.shopping.order.messaging.OrderPlacedEventPublisher;
 import com.chuwa.shopping.order.entity.OrderKey;
 import com.chuwa.shopping.order.entity.OrderLineItem;
 import com.chuwa.shopping.order.entity.OrderNumberLookup;
@@ -34,10 +37,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class OrderServiceImpl implements OrderService {
 
+    private static final Logger log = LoggerFactory.getLogger(OrderServiceImpl.class);
     private static final long CANCEL_WINDOW_HOURS = 24;
     private static final BigDecimal FREE_SHIPPING_THRESHOLD = new BigDecimal("35.00");
     private static final BigDecimal STANDARD_SHIPPING_FEE = new BigDecimal("6.00");
@@ -47,20 +53,20 @@ public class OrderServiceImpl implements OrderService {
     private final OrderMapper orderMapper;
     private final ItemServiceClient itemServiceClient;
     private final AccountServiceClient accountServiceClient;
-    private final OrderPlacedEventPublisher orderPlacedEventPublisher;
+    private final PaymentServiceClient paymentServiceClient;
 
     public OrderServiceImpl(ShoppingOrderRepository shoppingOrderRepository,
                             OrderNumberLookupRepository orderNumberLookupRepository,
                             OrderMapper orderMapper,
                             ItemServiceClient itemServiceClient,
                             AccountServiceClient accountServiceClient,
-                            OrderPlacedEventPublisher orderPlacedEventPublisher) {
+                            PaymentServiceClient paymentServiceClient) {
         this.shoppingOrderRepository = shoppingOrderRepository;
         this.orderNumberLookupRepository = orderNumberLookupRepository;
         this.orderMapper = orderMapper;
         this.itemServiceClient = itemServiceClient;
         this.accountServiceClient = accountServiceClient;
-        this.orderPlacedEventPublisher = orderPlacedEventPublisher;
+        this.paymentServiceClient = paymentServiceClient;
     }
 
     @Override
@@ -77,6 +83,7 @@ public class OrderServiceImpl implements OrderService {
         order.setTaxAmount(defaultMoney(requestDto.getTaxAmount()));
         order.setShippingAddress(orderMapper.toAddressSnapshot(requestDto.getShippingAddress()));
         order.setBillingAddress(orderMapper.toAddressSnapshot(requestDto.getBillingAddress()));
+        order.setPaymentMethod(requestDto.getPaymentMethod() == null ? PaymentMethod.CREDIT_CARD : requestDto.getPaymentMethod());
         order.setItems(materializeLineItems(requestDto.getItems()));
         order.setCreateRequestId(requestDto.getCreateRequestId());
         order.setVersion(1);
@@ -85,9 +92,47 @@ public class OrderServiceImpl implements OrderService {
         recalculateTotals(order);
         ShoppingOrder saved = shoppingOrderRepository.save(order);
         orderNumberLookupRepository.save(toOrderNumberLookup(saved));
-        OrderDto savedOrder = orderMapper.toOrderDto(saved);
-        orderPlacedEventPublisher.publish(savedOrder, requestDto.getPaymentMethod());
-        return savedOrder;
+        return orderMapper.toOrderDto(saved);
+    }
+
+    @Override
+    public OrderDto placeOrder(String orderNumber) {
+        ShoppingOrder saved = getOrderEntity(orderNumber);
+        if (saved.getStatus() != OrderStatus.CREATED) {
+            throw new IllegalStateException("Only draft orders can be placed");
+        }
+
+        // Reserve stock first. If this fails, payment is never attempted.
+        try {
+            adjustInventory(saved.getOrderNumber(), saved.getItems(), "checkout-" + saved.getOrderNumber(), InventoryAdjustmentType.PURCHASE);
+        } catch (RuntimeException inventoryFailure) {
+            ShoppingOrder failedOrder = markCheckoutFailed(saved, "Inventory reservation failed");
+            return orderMapper.toOrderDto(failedOrder);
+        }
+
+        // Then capture payment. If this fails after stock is reserved, restock immediately.
+        PaymentProcessingResultDto payment;
+        try {
+            PaymentRequestDto paymentRequest = new PaymentRequestDto();
+            paymentRequest.setOrderId(saved.getOrderNumber());
+            paymentRequest.setCustomerId(saved.getKey().getCustomerId());
+            paymentRequest.setPaymentMethod(saved.getPaymentMethod() == null ? PaymentMethod.CREDIT_CARD : saved.getPaymentMethod());
+            paymentRequest.setAmount(defaultMoney(saved.getTotalAmount()));
+            paymentRequest.setCurrencyCode(firstNonBlank(saved.getCurrencyCode(), "USD"));
+            paymentRequest.setIdempotencyKey(firstNonBlank(saved.getCreateRequestId(), saved.getOrderNumber() + ":PAY"));
+            paymentRequest.setExternalReference(firstNonBlank(saved.getCreateRequestId(), saved.getOrderNumber()));
+            payment = paymentServiceClient.processPayment(paymentRequest);
+        } catch (RuntimeException paymentFailure) {
+            adjustInventory(saved.getOrderNumber(), saved.getItems(), "checkout-" + saved.getOrderNumber(), InventoryAdjustmentType.RESTOCK);
+            ShoppingOrder failedOrder = markCheckoutFailed(saved, "Payment processing failed");
+            return orderMapper.toOrderDto(failedOrder);
+        }
+
+        OrderDto response = orderMapper.toOrderDto(saved);
+        response.setPaymentReference(payment == null || payment.getPaymentNumber() == null
+                ? saved.getOrderNumber()
+                : payment.getPaymentNumber());
+        return response;
     }
 
     @Override
@@ -150,8 +195,10 @@ public class OrderServiceImpl implements OrderService {
         ensureProcessedEventList(order);
         String syncId = safeOperationId(requestDto.getPaymentReference(), orderNumber) + ":" + requestDto.getPaymentStatus().name();
         if (order.getProcessedPaymentEventIds().contains(syncId)) {
+            // Kafka can redeliver, so repeated payment events become a no-op.
             return orderMapper.toOrderDto(order);
         }
+
         order.setPaymentReference(requestDto.getPaymentReference());
         order.setStatusReason(requestDto.getStatusReason());
         order.setUpdatedAt(Instant.now());
@@ -184,6 +231,14 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (requestDto.getPaymentStatus() == PaymentStatus.FAILED) {
+            if (order.getStatus() != OrderStatus.FAILED
+                    && order.getStatus() != OrderStatus.CANCELLED
+                    && order.getStatus() != OrderStatus.REFUNDED) {
+                adjustInventory(order.getOrderNumber(),
+                        order.getItems(),
+                        "payment-failure-" + requestDto.getPaymentReference(),
+                        InventoryAdjustmentType.RESTOCK);
+            }
             order.setStatus(OrderStatus.FAILED);
             order.setStatusReason(requestDto.getStatusReason() == null ? "Payment failed" : requestDto.getStatusReason());
         }
@@ -221,6 +276,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private void applyPricing(ShoppingOrder order, Long customerId) {
+        // Order pricing is computed from the catalog snapshot plus account membership.
         AccountProfileDto account = loadAccount(customerId);
         BigDecimal subtotal = order.getItems().stream()
                 .map(OrderLineItem::getLineTotal)
@@ -290,15 +346,50 @@ public class OrderServiceImpl implements OrderService {
                                  List<OrderLineItem> items,
                                  String operationPrefix,
                                  InventoryAdjustmentType adjustmentType) {
+        // Inventory changes are sent item-by-item with unique operation IDs for idempotency.
         String prefix = safeOperationId(operationPrefix, adjustmentType.name().toLowerCase() + "-" + orderNumber);
-        for (OrderLineItem item : deduplicateLineItems(items)) {
+        List<OrderLineItem> changedItems = new ArrayList<>();
+        try {
+            for (OrderLineItem item : deduplicateLineItems(items)) {
+                InventoryAdjustmentRequestDto requestDto = new InventoryAdjustmentRequestDto();
+                requestDto.setAdjustmentType(adjustmentType);
+                requestDto.setQuantity(item.getQuantity());
+                requestDto.setReference(orderNumber);
+                requestDto.setOperationId(prefix + "-" + item.getSku());
+                itemServiceClient.adjustInventory(item.getSku(), requestDto);
+                changedItems.add(item);
+            }
+        } catch (RuntimeException inventoryFailure) {
+            if (adjustmentType == InventoryAdjustmentType.PURCHASE && !changedItems.isEmpty()) {
+                rollbackChangedItems(orderNumber, prefix, changedItems);
+            }
+            throw inventoryFailure;
+        }
+    }
+
+    private void rollbackChangedItems(String orderNumber, String operationPrefix, List<OrderLineItem> changedItems) {
+        // If a purchase fails mid-way, only the already adjusted items are restocked.
+        for (OrderLineItem item : changedItems) {
             InventoryAdjustmentRequestDto requestDto = new InventoryAdjustmentRequestDto();
-            requestDto.setAdjustmentType(adjustmentType);
+            requestDto.setAdjustmentType(InventoryAdjustmentType.RESTOCK);
             requestDto.setQuantity(item.getQuantity());
             requestDto.setReference(orderNumber);
-            requestDto.setOperationId(prefix + "-" + item.getSku());
+            requestDto.setOperationId(operationPrefix + "-rollback-" + item.getSku());
             itemServiceClient.adjustInventory(item.getSku(), requestDto);
         }
+    }
+
+    private ShoppingOrder markCheckoutFailed(ShoppingOrder order, String statusReason) {
+        // Persist a failed checkout when the user-facing place-order step cannot finish.
+        order.setStatus(OrderStatus.FAILED);
+        order.setStatusReason(firstNonBlank(statusReason, "Checkout failed"));
+        order.setUpdatedAt(Instant.now());
+        order.setVersion(order.getVersion() + 1);
+        return shoppingOrderRepository.save(order);
+    }
+
+    private String firstNonBlank(String first, String fallback) {
+        return first != null && !first.isBlank() ? first : fallback == null ? "" : fallback;
     }
 
     private List<OrderLineItem> deduplicateLineItems(List<OrderLineItem> items) {
@@ -337,6 +428,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private void ensureProcessedEventList(ShoppingOrder order) {
+        // Track processed payment events so Kafka redelivery does not double-apply state changes.
         if (order.getProcessedPaymentEventIds() == null) {
             order.setProcessedPaymentEventIds(new ArrayList<>());
         }
