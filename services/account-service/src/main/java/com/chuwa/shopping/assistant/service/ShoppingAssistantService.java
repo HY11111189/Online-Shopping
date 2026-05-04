@@ -74,7 +74,8 @@ public class ShoppingAssistantService {
             "SEARCH_PRODUCTS",
             "PLACE_ORDER",
             "LOOKUP_ORDERS",
-            "GENERAL_HELP"
+            "GENERAL_HELP",
+            "OUT_OF_SCOPE"
     );
     private static final Pattern ORDER_NUMBER_PATTERN = Pattern.compile("(ORD-[A-Z0-9]{8,})", Pattern.CASE_INSENSITIVE);
 
@@ -129,6 +130,8 @@ public class ShoppingAssistantService {
                 return searchProducts(intent, userMessage);
             case "LOOKUP_ORDERS":
                 return lookupOrders(intent, userMessage, authentication);
+            case "OUT_OF_SCOPE":
+                return outOfScope();
             default:
                 return generalHelp(userMessage, intent, authentication);
         }
@@ -191,7 +194,8 @@ public class ShoppingAssistantService {
                 .add("SEARCH_PRODUCTS")
                 .add("PLACE_ORDER")
                 .add("LOOKUP_ORDERS")
-                .add("GENERAL_HELP");
+                .add("GENERAL_HELP")
+                .add("OUT_OF_SCOPE");
         properties.putObject("productName").put("type", "string");
         properties.putObject("searchQuery").put("type", "string");
         properties.putObject("sku").put("type", "string");
@@ -260,12 +264,13 @@ public class ShoppingAssistantService {
         return "You are a shopping assistant for an online store. " + userContext + " "
                 + "Today is " + today + " in the shopper's local timezone. "
                 + "Return only JSON that matches the schema. The backend will parse this JSON and map it into internal request objects. "
-                + "Use only these intents: SEARCH_PRODUCTS, PLACE_ORDER, LOOKUP_ORDERS, and GENERAL_HELP. "
+                + "Use only these intents: SEARCH_PRODUCTS, PLACE_ORDER, LOOKUP_ORDERS, GENERAL_HELP, and OUT_OF_SCOPE. "
                 + "Use SEARCH_PRODUCTS only when the shopper is asking to find, browse, show, or look at products and has not clearly asked to buy or add to cart. "
                 + "Use PLACE_ORDER only when the shopper clearly wants to buy, order, checkout, or purchase an item. "
                 + "If the message contains buy, order, purchase, checkout, or place my order, classify it as PLACE_ORDER, not SEARCH_PRODUCTS. "
                 + "Use LOOKUP_ORDERS only when the shopper asks about order history, order status, or orders placed on a date or within a date range. "
-                + "Use GENERAL_HELP only when none of the above intents fit. "
+                + "Use OUT_OF_SCOPE when the message has nothing to do with shopping, products, or orders — for example questions about weather, politics, coding, or general knowledge. "
+                + "Use GENERAL_HELP only when the message is shopping-related but does not fit the above intents. "
                 + "Use empty strings for unknown text fields. Use quantity 1 when not specified. "
                 + "Set productName to the product words only, not the whole user sentence. "
                 + "Set searchQuery to short product search terms only. "
@@ -594,6 +599,14 @@ public class ShoppingAssistantService {
         return response;
     }
 
+    private ShoppingAssistantResponseDto outOfScope() {
+        ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
+        response.setIntent("OUT_OF_SCOPE");
+        response.setState("idle");
+        response.setReply("I'm a shopping assistant and can only help with browsing products, placing orders, and looking up your order history. Is there something shopping-related I can help you with?");
+        return response;
+    }
+
     private ShoppingAssistantResponseDto generalHelp(String userMessage, AssistantIntentDto intent, Authentication authentication) {
         // General help is the fallback when the message does not fit the product, order, or lookup flows.
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
@@ -602,14 +615,6 @@ public class ShoppingAssistantService {
         response.setReply(isAuthenticated(authentication)
                 ? "I can browse the full catalog, search products by name or category, add items to your cart, place an order, and look up your orders."
                 : "I can browse the full catalog and search products. Sign in if you want me to add to cart, place an order, or look up orders.");
-        String query = assistantSearchQuery(intent);
-        List<ItemDto> matches = query.isBlank() ? loadAllItems(4) : searchItems(query, normalizeCategory(intent.getCategory()), 4);
-        if (!matches.isEmpty()) {
-            response.setItems(matches.stream().map(this::toAssistantItem).collect(Collectors.toList()));
-            if (!query.isBlank()) {
-                response.getActions().add(action("See results", "/index.html?q=" + urlEncode(query), "navigate"));
-            }
-        }
         response.getActions().add(action("Browse all products", "/index.html", "navigate"));
         if (isAuthenticated(authentication)) {
             response.getActions().add(action("View recent orders", "/account.html", "navigate"));

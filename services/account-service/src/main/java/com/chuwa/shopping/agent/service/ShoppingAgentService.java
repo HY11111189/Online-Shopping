@@ -593,8 +593,7 @@ public class ShoppingAgentService {
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent("OUT_OF_SCOPE");
         response.setState("idle");
-        String planReply = plan != null && plan.getReply() != null && !plan.getReply().isBlank() ? plan.getReply() : null;
-        response.setReply(planReply != null ? planReply : "I'm a shopping assistant — I can help you find products, manage your cart, place orders, and look up order history.");
+        response.setReply("I'm a shopping assistant and can only help with browsing products, placing orders, and looking up your order history. Is there something shopping-related I can help you with?");
         response.getActions().add(action("Browse all products", "/index.html", "navigate"));
         return response;
     }

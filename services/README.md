@@ -76,7 +76,7 @@ Where the clients live:
 - [OrderServiceClient.java](/Users/hhhhh1/Desktop/Training/Project/springboot-shopping/services/shared-lib/src/main/java/com/chuwa/shopping/client/OrderServiceClient.java)
 - [PaymentServiceClient.java](/Users/hhhhh1/Desktop/Training/Project/springboot-shopping/services/shared-lib/src/main/java/com/chuwa/shopping/client/PaymentServiceClient.java)
 
-Who calls whom:
+Communication:
 - `order-service` calls `item-service` through Feign to load item details and adjust inventory
 - `order-service` calls `account-service` through Feign for checkout profile data
 - `order-service` calls `payment-service` through Feign for synchronous payment capture
@@ -249,6 +249,12 @@ What it can do:
   - after the user picks one, the assistant places the order directly
 - `LOOKUP_ORDERS`
   - show matching orders by order number or date range
+- `GENERAL_HELP`
+  - shopping-related questions that don't fit the above intents
+  - returns a brief capability summary and sample products
+- `OUT_OF_SCOPE`
+  - non-shopping questions (weather, politics, coding, general knowledge, etc.)
+  - returns a polite message redirecting the user to shopping topics
 
 Example:
 ```json
@@ -415,7 +421,7 @@ forcing the model to return a machine-parseable `ShoppingAgentPlanDto`:
 
 ```json
 {
-  "intent": "PLACE_ORDER",
+ 
   "reply": "Placing order now.",
   "clarificationQuestion": "",
   "needsClarification": false,
