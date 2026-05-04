@@ -6,10 +6,10 @@ import { dateLabel, money } from '../lib/format'
 import { isSessionActive } from '../lib/session'
 
 const quickPrompts = [
-  'Find me some fruits',
-  'Buy me some medicine',
-  'Show me orders I placed this week',
+  'Show me all products',
+  'Find toys for me',
   'Add a coffee maker to my cart',
+  'Show my recent orders',
 ]
 
 function ChatItemCard({ item, message, onAdd, onChoose }) {
@@ -66,7 +66,7 @@ export function ShoppingAgentChat() {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      text: 'I can plan shopping tasks, remember recent questions, search the catalog, place orders, and look up orders with fewer repeated API calls.',
+      text: 'I can browse the full catalog, look up products, add items to your cart, place an order with your saved checkout details, and show your recent orders.',
       actions: [{ label: 'Browse all products', href: '/index.html' }],
     },
   ])

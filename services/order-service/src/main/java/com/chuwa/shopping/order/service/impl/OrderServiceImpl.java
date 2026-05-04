@@ -268,8 +268,12 @@ public class OrderServiceImpl implements OrderService {
             item.setItemName(catalogItem.getItemName());
             item.setUpc(catalogItem.getUpc());
             item.setUnitPrice(catalogItem.getUnitPrice());
-            if (item.getUnitPrice() != null && item.getQuantity() != null) {
-                item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+            // lineTotal stores the original (pre-discount) price × quantity so that
+            // recalculateTotals can correctly compute: subtotal - discountAmount + shipping = amount due.
+            // Using the already-discounted unitPrice here caused the discount to be subtracted twice.
+            BigDecimal originalPrice = originalUnitPrice(catalogItem);
+            if (originalPrice != null && item.getQuantity() != null) {
+                item.setLineTotal(originalPrice.multiply(BigDecimal.valueOf(item.getQuantity())));
             }
         }
         return lineItems;
@@ -278,10 +282,13 @@ public class OrderServiceImpl implements OrderService {
     private void applyPricing(ShoppingOrder order, Long customerId) {
         // Order pricing is computed from the catalog snapshot plus account membership.
         AccountProfileDto account = loadAccount(customerId);
-        BigDecimal subtotal = order.getItems().stream()
-                .map(OrderLineItem::getLineTotal)
+        // Shipping threshold is based on the discounted price (what the customer actually pays),
+        // not the original price — so we compute it from unitPrice × quantity, not lineTotal.
+        BigDecimal discountedSubtotal = order.getItems().stream()
+                .filter(item -> item.getUnitPrice() != null && item.getQuantity() != null)
+                .map(item -> item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        order.setShippingAmount(calculateShippingAmount(account, order.getItems(), subtotal));
+        order.setShippingAmount(calculateShippingAmount(account, order.getItems(), discountedSubtotal));
         order.setDiscountAmount(calculateDiscountAmount(order.getItems()));
     }
 

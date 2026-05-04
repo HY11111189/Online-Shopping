@@ -54,8 +54,21 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+/**
+ * Shopping agent pipeline,
+ * the agent asks OpenAI to produce a full multi-step PLAN (a list of tool calls),
+ * then executes each tool call in sequence before returning one combined response.
+ *
+ * High-level flow:
+ * 1. If the user clicked a product card, skip OpenAI and handle it directly.
+ * 2. Check the in-memory cache; return the cached reply if the message was seen recently.
+ * 3. Call OpenAI (classifyPlan) to get a ShoppingAgentPlanDto with an ordered toolCalls list.
+ * 4. Execute the plan (executePlan): run SEARCH_PRODUCTS, then PLACE_ORDER / ADD_TO_CART / LOOKUP_ORDERS.
+ * 5. Store the result in memory so the next identical message gets an instant reply.
+ */
 @Service
 public class ShoppingAgentService {
 
@@ -95,6 +108,8 @@ public class ShoppingAgentService {
     }
 
     public ShoppingAssistantResponseDto chat(ShoppingAssistantRequestDto requestDto, Authentication authentication) {
+        // A clicked product card already carries a structured SKU + action,
+        // so we skip OpenAI entirely and execute the action directly.
         if (hasDirectSelection(requestDto)) {
             return handleDirectSelection(requestDto, authentication);
         }
@@ -109,17 +124,36 @@ public class ShoppingAgentService {
             return emptyResponse;
         }
 
+        // conversationKey scopes the memory cache to the signed-in customer (or "guest").
         String conversationKey = conversationKey(authentication);
+
+        // Check cache by normalized user message before calling OpenAI — exact or
+        // near-exact repeats return immediately with zero API calls.
         String normalizedMessage = ShoppingAgentMemoryService.normalize(userMessage);
         Optional<ShoppingAssistantResponseDto> cached = memoryService.findCachedResponse(conversationKey, normalizedMessage);
         if (cached.isPresent()) {
-            log.info("agent cache hit for {}", conversationKey);
+            log.info("agent cache hit for conversation={}", conversationKey);
             return cached.get();
         }
 
+        // Ask OpenAI for a plan: an intent + ordered list of tool calls the backend executes.
         ShoppingAgentPlanDto plan = classifyPlan(userMessage, authentication, conversationKey);
         ShoppingAssistantResponseDto response = executePlan(plan, userMessage, authentication);
         memoryService.remember(conversationKey, userMessage, response);
+        if ("clarification".equals(response.getState())) {
+            // Within a clarification chain — update the rolling summary so the next
+            // turn knows what was already asked and what the user has said so far.
+            String currentSummary = memoryService.recentSummary(conversationKey);
+            String replySnapshot = response.getReply();
+            CompletableFuture.runAsync(() -> {
+                String updated = generateConversationSummary(currentSummary, userMessage, replySnapshot);
+                memoryService.storeSummary(conversationKey, updated);
+            });
+        } else {
+            // Round fully resolved — clear the summary so it does not bleed into
+            // the next independent question.
+            memoryService.clearSummary(conversationKey);
+        }
         return response;
     }
 
@@ -134,6 +168,8 @@ public class ShoppingAgentService {
     }
 
     private ShoppingAssistantResponseDto handleDirectSelection(ShoppingAssistantRequestDto requestDto, Authentication authentication) {
+        // The frontend sends selectedSku + selectedAction when the user clicks a product card button.
+        // We resolve the item by SKU and jump straight to the cart or order flow, bypassing OpenAI.
         String action = requestDto.getSelectedAction().trim().toUpperCase(Locale.ROOT);
         ItemDto item = getItemBySku(requestDto.getSelectedSku());
         if (item == null) {
@@ -153,6 +189,10 @@ public class ShoppingAgentService {
     }
 
     private ShoppingAgentPlanDto classifyPlan(String userMessage, Authentication authentication, String conversationKey) {
+        // Unlike the assistant (which asks OpenAI for a flat classification),
+        // the agent asks OpenAI to produce a full plan: an intent + an ordered list of
+        // toolCalls the backend should execute (e.g. SEARCH_PRODUCTS then PLACE_ORDER).
+        // We use a strict JSON schema so the response is always machine-parseable.
         if (openAiApiKey == null || openAiApiKey.isBlank()) {
             throw new IllegalStateException("OPENAI_API_KEY is not configured for the shopping agent");
         }
@@ -176,7 +216,8 @@ public class ShoppingAgentService {
                 .add("PLACE_ORDER")
                 .add("LOOKUP_ORDERS")
                 .add("ADD_TO_CART")
-                .add("GENERAL_HELP");
+                .add("GENERAL_HELP")
+                .add("OUT_OF_SCOPE");
         properties.putObject("reply").put("type", "string");
         properties.putObject("clarificationQuestion").put("type", "string");
         properties.putObject("needsClarification").put("type", "boolean");
@@ -242,14 +283,20 @@ public class ShoppingAgentService {
         return "You are an autonomous shopping agent. " + userContext + " "
                 + "Today is " + today + " in the shopper's local timezone. "
                 + "Return only JSON. The backend will execute the tool calls you plan. "
+                + "Keep the reply field under 15 words — it is a short confirmation, not a full sentence. "
+                + "Keep the query field to 1-3 specific product-type keywords that match item names (e.g. 'dress', 'women clothing', 'coffee maker') — not descriptive phrases like 'gift for mum' or 'fashion ideas'. "
                 + "Use the recent memory summary to avoid repeating API calls when the user asks the same thing again or refers to the last product. "
                 + "Recent memory summary: " + (recentSummary == null || recentSummary.isBlank() ? "none" : recentSummary) + " "
                 + "Use SEARCH_PRODUCTS for finding or browsing products. "
                 + "Use PLACE_ORDER only when you can move directly toward checkout. "
                 + "Use ADD_TO_CART when the user wants to save a product to cart. "
                 + "Use LOOKUP_ORDERS for order history or date-based order lookups. "
-                + "If the request is ambiguous, return needsClarification=true and set clarificationQuestion. "
-                + "Do not ask follow-up questions for broad product requests like 'find some fruits' or 'any fruits on this website'; use a broad search and let the app show a few matches. "
+                + "Use OUT_OF_SCOPE for any question unrelated to shopping, products, orders, or the cart (e.g. weather, politics, coding help, general knowledge). "
+                + "Clarification rules: ask at most 2 clarification questions total across the whole conversation. "
+                + "Ask one short, natural, open-ended question when the request has no product type — like a helpful shop assistant would in real life. "
+                + "Never give the user a pre-set list of categories or options. "
+                + "Do NOT ask for clarification when a product type is already clear (e.g. 'cooking gift', 'toys', 'coffee maker'). "
+                + "If the rolling summary already has any product type or category, never ask again — proceed with SEARCH_PRODUCTS immediately. "
                 + "If the request is a direct buy and the product is obvious, include SEARCH_PRODUCTS first, then PLACE_ORDER. "
                 + "If the request is a cart request, include SEARCH_PRODUCTS first, then ADD_TO_CART. "
                 + "For order lookups, set startDate and endDate as ISO-8601 dates with endDate exclusive. "
@@ -258,7 +305,39 @@ public class ShoppingAgentService {
                 + "'show me orders I placed this week' -> LOOKUP_ORDERS with a full date range.";
     }
 
-    private ShoppingAssistantResponseDto executePlan(ShoppingAgentPlanDto plan, String userMessage, Authentication authentication) {
+    // Calls OpenAI to compress the latest exchange into a growing one-sentence summary.
+    // Each call is tiny (the summary stays short), so the cost is negligible.
+    // The resulting summary is stored in memory and injected into the planning prompt
+    // on the next turn, giving OpenAI the full shopping context even after clarifications.
+    private String generateConversationSummary(String existingSummary, String userMessage, String agentReply) {
+        if (openAiApiKey == null || openAiApiKey.isBlank()) {
+            return existingSummary;
+        }
+        try {
+            ObjectNode payload = objectMapper.createObjectNode();
+            payload.put("model", resolveOpenAiModel());
+            payload.put("max_output_tokens", 60);
+            String context = "Previous summary: " + (existingSummary == null || existingSummary.isBlank() ? "none" : existingSummary) + "\n"
+                    + "User said: " + userMessage + "\n"
+                    + "Agent replied: " + agentReply;
+            payload.put("input", context);
+            payload.put("instructions", "You are summarizing a shopping conversation. "
+                    + "Update the summary in one concise sentence capturing what the user wants and any constraints "
+                    + "(budget, category, recipient, etc.) mentioned so far. "
+                    + "Return only the sentence, no explanation.");
+            JsonNode response = postJsonToJson("https://api.openai.com/v1/responses", payload, openAiApiKey);
+            String summary = extractOutputText(response);
+            return summary != null && !summary.isBlank() ? summary.trim() : existingSummary;
+        } catch (Exception ex) {
+            log.warn("Failed to generate conversation summary: {}", ex.getMessage());
+            return existingSummary;
+        }
+    }
+
+    private ShoppingAssistantResponseDto executePlan(ShoppingAgentPlanDto plan, String userMessage, Authentication authentication) {// Route the plan to the appropriate handler based on the top-level intent.
+        // If OpenAI flagged the request as ambiguous (needsClarification), we surface
+        // the clarification question immediately instead of running tool calls — except
+        // for SEARCH_PRODUCTS, where we always run the search and show results instead.
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent(firstNonBlank(plan == null ? null : plan.getIntent(), "GENERAL_HELP"));
         if (plan == null) {
@@ -267,8 +346,10 @@ public class ShoppingAgentService {
             return response;
         }
 
-        if (!"SEARCH_PRODUCTS".equals(firstNonBlank(plan.getIntent(), "GENERAL_HELP"))
-                && plan.isNeedsClarification()
+        // Surface a clarification question whenever OpenAI decides one is needed.
+        // OpenAI is instructed to ask at most 2 clarification questions total,
+        // and only when no product type or category is known yet.
+        if (plan.isNeedsClarification()
                 && plan.getClarificationQuestion() != null
                 && !plan.getClarificationQuestion().isBlank()) {
             response.setState("clarification");
@@ -286,33 +367,43 @@ public class ShoppingAgentService {
                 return runAddToCartPlan(plan, authentication);
             case "PLACE_ORDER":
                 return runPlaceOrderPlan(plan, authentication);
+            case "OUT_OF_SCOPE":
+                return outOfScope(plan);
             default:
                 return generalHelp(userMessage, authentication);
         }
     }
 
     private ShoppingAssistantResponseDto runSearchPlan(ShoppingAgentPlanDto plan, String userMessage) {
+        // Search flow:
+        // 1) Pull the SEARCH_PRODUCTS tool call from the plan for query/category/limit fields.
+        // 2) Route: query → searchItems, category-only → loadItemsByCategory, nothing → loadAllItems.
+        // 3) Return product cards the user can act on.
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent("SEARCH_PRODUCTS");
         response.setState("choose_product");
         ShoppingAgentToolCallDto tool = firstToolCall(plan, "SEARCH_PRODUCTS");
         String query = normalizeQuery(tool == null ? null : tool.getQuery());
         String category = normalizeCategory(tool == null ? null : tool.getCategory());
-        boolean browseAll = tool != null && Boolean.TRUE.equals(tool.getBrowseAll());
         int limit = tool != null && tool.getLimit() != null && tool.getLimit() > 0 ? Math.min(tool.getLimit(), 6) : 6;
-        if (looksLikeBroadFruitSearch(userMessage, query, category)) {
-            query = firstNonBlank(query, "fruit");
-            browseAll = false;
-            limit = Math.min(limit, 6);
+        // Always prefer a targeted search when query or category is present —
+        // even if OpenAI also set browseAll=true. browseAll=true with a specific
+        // query/category means "show broadly within that topic", not "ignore the topic".
+        // Only fall back to loadAllItems when there is truly nothing to search with.
+        boolean browseAll = query.isBlank() && category.isBlank();
+        List<ItemDto> matches;
+        if (!query.isBlank()) {
+            matches = searchItems(query, category, limit);
+        } else if (!category.isBlank()) {
+            matches = loadItemsByCategory(category, limit);
+        } else {
+            matches = loadAllItems(limit);
         }
-        List<ItemDto> matches = browseAll
-                ? loadAllItems(limit)
-                : (!query.isBlank() ? searchItems(query, category, limit)
-                : (!category.isBlank() ? loadItemsByCategory(category, limit) : loadAllItems(limit)));
         response.setResolvedQuery(displaySearchLabel(query, category, browseAll, userMessage));
+        String planReply = plan != null && plan.getReply() != null && !plan.getReply().isBlank() ? plan.getReply() : null;
         response.setReply(matches.isEmpty()
                 ? "I could not find matching products."
-                : "I found " + matches.size() + " product" + (matches.size() == 1 ? "" : "s") + ". Pick one and I can add it to your cart or place the order.");
+                : planReply != null ? planReply : "I found " + matches.size() + " product" + (matches.size() == 1 ? "" : "s") + ". Pick one and I can add it to your cart or place the order.");
         if (matches.isEmpty()) {
             response.setState("empty");
             response.getActions().add(action("Browse home", "/index.html", "navigate"));
@@ -324,15 +415,12 @@ public class ShoppingAgentService {
         return response;
     }
 
-    private boolean looksLikeBroadFruitSearch(String userMessage, String query, String category) {
-        String lower = firstNonBlank(userMessage, "").toLowerCase(Locale.ROOT);
-        String merged = (firstNonBlank(query, "") + " " + firstNonBlank(category, "")).toLowerCase(Locale.ROOT);
-        return containsAny(lower, "fruit", "fruits")
-                || containsAny(merged, "fruit", "fruits")
-                || containsAny(lower, "any type", "any fruits", "any fruit", "fresh fruit", "fresh fruits");
-    }
-
     private ShoppingAssistantResponseDto runOrderLookupPlan(ShoppingAgentPlanDto plan, String userMessage, Authentication authentication) {
+        // Order lookup flow:
+        // 1) Require sign-in — order data is always customer-scoped.
+        // 2) Load all orders for the customer from order-service (sorted newest first).
+        // 3) Filter by exact order number if present, or by the AI-provided date range.
+        // 4) Return matching order cards.
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent("LOOKUP_ORDERS");
         if (!isAuthenticated(authentication)) {
@@ -380,6 +468,11 @@ public class ShoppingAgentService {
     }
 
     private ShoppingAssistantResponseDto runAddToCartPlan(ShoppingAgentPlanDto plan, Authentication authentication) {
+        // Add-to-cart flow:
+        // 1) Require sign-in (cart is tied to a customer account).
+        // 2) Try to resolve exactly one product from the plan's SEARCH_PRODUCTS / ADD_TO_CART tool call.
+        // 3) If multiple matches exist, return them as a clarification list for the user to pick from.
+        // 4) Push the chosen item to order-service cart endpoint.
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent("ADD_TO_CART");
         response.setState("success");
@@ -424,6 +517,12 @@ public class ShoppingAgentService {
     }
 
     private ShoppingAssistantResponseDto runPlaceOrderPlan(ShoppingAgentPlanDto plan, Authentication authentication) {
+        // Place-order flow (the agent's most autonomous action):
+        // 1) Require sign-in.
+        // 2) Resolve the product — if multiple matches exist, show them so the user picks one.
+        // 3) Load the account to get the default shipping address and active payment method.
+        // 4) POST to order-service to create a draft order, then place it immediately.
+        // 5) Return the order number and a link so the user can track the order.
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent("PLACE_ORDER");
         response.setState("choose_product");
@@ -490,6 +589,16 @@ public class ShoppingAgentService {
         return response;
     }
 
+    private ShoppingAssistantResponseDto outOfScope(ShoppingAgentPlanDto plan) {
+        ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
+        response.setIntent("OUT_OF_SCOPE");
+        response.setState("idle");
+        String planReply = plan != null && plan.getReply() != null && !plan.getReply().isBlank() ? plan.getReply() : null;
+        response.setReply(planReply != null ? planReply : "I'm a shopping assistant — I can help you find products, manage your cart, place orders, and look up order history.");
+        response.getActions().add(action("Browse all products", "/index.html", "navigate"));
+        return response;
+    }
+
     private ShoppingAssistantResponseDto generalHelp(String userMessage, Authentication authentication) {
         ShoppingAssistantResponseDto response = new ShoppingAssistantResponseDto();
         response.setIntent("GENERAL_HELP");
@@ -525,21 +634,20 @@ public class ShoppingAgentService {
         }
         String query = normalizeQuery(tool.getQuery());
         String category = normalizeCategory(tool.getCategory());
-        boolean browseAll = Boolean.TRUE.equals(tool.getBrowseAll());
-        int useLimit = tool.getLimit() != null && tool.getLimit() > 0 ? tool.getLimit() : limit;
-        if (browseAll) {
-            return loadAllItems(useLimit);
-        }
+        int useLimit = tool.getLimit() != null && tool.getLimit() > 0 ? Math.min(tool.getLimit(), 6) : limit;
         if (!query.isBlank()) {
             return searchItems(query, category, useLimit);
         }
         if (!category.isBlank()) {
             return loadItemsByCategory(category, useLimit);
         }
-        return new ArrayList<>();
+        return loadAllItems(useLimit);
     }
 
     private ItemDto resolveSingleItemFromPlan(ShoppingAgentPlanDto plan, String conversationKey) {
+        // Try to narrow the candidate list down to exactly one item.
+        // If the search returns nothing, fall back to the SKU the user last interacted
+        // with in this conversation (stored in memory) so "buy that one" still works.
         List<ItemDto> items = resolveCandidatesFromPlan(plan, 4);
         if (items.isEmpty()) {
             String memorySku = memoryService.recentSelectedSku(conversationKey).orElse("");
@@ -639,6 +747,9 @@ public class ShoppingAgentService {
                                        int quantity,
                                        AddressSnapshotDto shippingAddress,
                                        StoredPaymentMethodDto paymentMethod) {
+        // Two-step order creation mirroring the manual checkout flow:
+        // Step 1 — POST /orders to create a draft (returns an order number).
+        // Step 2 — POST /orders/{orderNumber}/place to confirm and trigger payment.
         ObjectNode request = objectMapper.createObjectNode();
         request.put("customerId", customerId);
         request.put("currencyCode", firstNonBlank(item.getCurrencyCode(), "USD"));
@@ -648,15 +759,15 @@ public class ShoppingAgentService {
         request.putPOJO("billingAddress", shippingAddress);
         request.putPOJO("paymentMethod", paymentMethod.getPaymentMethodType() == null ? PaymentMethod.CREDIT_CARD : paymentMethod.getPaymentMethodType());
 
+        // The order-service's materializeLineItems fetches catalog prices and overrides whatever
+        // the caller sends for unitPrice/lineTotal. applyPricing then computes shippingAmount and
+        // discountAmount server-side from the catalog and the customer's membership level.
+        // The agent only needs to supply sku and quantity — the backend handles all pricing.
         ArrayNode items = request.putArray("items");
         ObjectNode orderItem = items.addObject();
         orderItem.put("itemId", item.getSku() + "::SHIPPING");
         orderItem.put("sku", item.getSku());
-        orderItem.put("itemName", item.getItemName());
-        orderItem.put("upc", item.getUpc());
         orderItem.put("quantity", quantity);
-        orderItem.put("unitPrice", item.getUnitPrice() == null ? "0.00" : item.getUnitPrice().toPlainString());
-        orderItem.put("lineTotal", defaultMoney(item.getUnitPrice()).multiply(BigDecimal.valueOf(quantity)).toPlainString());
 
         try {
             OrderDto draftOrder = readValue(sendJson(orderServiceUrl("/api/v1/shopping/orders"), request, token), OrderDto.class);
@@ -696,6 +807,7 @@ public class ShoppingAgentService {
     }
 
     private String conversationKey(Authentication authentication) {
+        // Each signed-in customer gets their own memory bucket; unauthenticated users share "guest".
         if (authentication == null) {
             return "guest";
         }
@@ -799,6 +911,7 @@ public class ShoppingAgentService {
     }
 
     private List<OrderDto> filterOrders(List<OrderDto> orders, ShoppingAgentPlanDto plan, String requestedOrderNumber, String userMessage) {
+        // Priority: exact order number > AI date range > keyword ("latest", "last") > default (top 3).
         if (orders == null || orders.isEmpty()) {
             return new ArrayList<>();
         }

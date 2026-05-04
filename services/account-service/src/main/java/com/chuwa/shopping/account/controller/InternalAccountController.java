@@ -1,5 +1,6 @@
 package com.chuwa.shopping.account.controller;
 
+import com.chuwa.shopping.account.dto.AccountDto;
 import com.chuwa.shopping.account.service.AccountService;
 import com.chuwa.shopping.dto.account.AccountProfileDto;
 import org.springframework.http.ResponseEntity;
@@ -20,7 +21,7 @@ public class InternalAccountController {
 
     @GetMapping("/{accountId}")
     public ResponseEntity<AccountProfileDto> getAccount(@PathVariable Long accountId) {
-        com.chuwa.shopping.account.dto.AccountDto account = accountService.getAccount(accountId);
+        AccountDto account = accountService.getAccount(accountId);
         AccountProfileDto response = new AccountProfileDto();
         response.setId(account.getId());
         response.setMembershipLevel(account.getMembershipLevel() == null ? null : account.getMembershipLevel().name());

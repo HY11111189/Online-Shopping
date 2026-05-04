@@ -370,6 +370,99 @@ Examples:
 ```
 
 
+# Shopping Agent
+The home page also includes a more autonomous **Shopping Agent** chat widget (the "AG" button). 
+Unlike the assistant, which classifies a single intent and returns one result, 
+the agent asks OpenAI to produce a full **plan** (an ordered list of tool calls),
+and then executes each step in sequence before returning a combined response.
+
+## Key flow
+
+```
+User message
+    │
+    ▼
+1. Cache check (ShoppingAgentMemoryService)
+   └─ normalized message hit → return cached response immediately (zero API calls)
+    │
+    ▼ miss
+2. OpenAI planning (classifyPlan)
+   └─ sends message + rolling clarification summary to OpenAI Responses API
+   └─ receives ShoppingAgentPlanDto: intent + ordered toolCalls list + needsClarification flag
+    │
+    ▼
+3. Plan execution (executePlan)
+   ├─ needsClarification=true  → return clarification question to user, update rolling summary
+   ├─ SEARCH_PRODUCTS          → search item-service, return product cards
+   ├─ ADD_TO_CART              → resolve product, POST to order-service cart endpoint
+   ├─ PLACE_ORDER              → resolve product, POST create + place to order-service
+   ├─ LOOKUP_ORDERS            → GET orders from order-service, filter by date range or order number
+   ├─ GENERAL_HELP             → return browse prompt with sample products
+   └─ OUT_OF_SCOPE             → politely decline non-shopping questions
+    │
+    ▼
+4. Cache store (ShoppingAgentMemoryService)
+   └─ store response keyed by normalized message for future lookups
+    │
+    ▼
+5. Rolling summary update (async, background)
+   └─ only updated during a clarification chain; cleared after a round resolves
+```
+
+## Planning (classifyPlan)
+`ShoppingAgentService.classifyPlan` sends the user message to the **OpenAI Responses API** with a strict JSON schema, 
+forcing the model to return a machine-parseable `ShoppingAgentPlanDto`:
+
+```json
+{
+  "intent": "PLACE_ORDER",
+  "reply": "Placing order now.",
+  "clarificationQuestion": "",
+  "needsClarification": false,
+  "toolCalls": [
+    { "tool": "SEARCH_PRODUCTS", "query": "coffee maker", "category": "", "quantity": 1, ... },
+    { "tool": "PLACE_ORDER",     "sku": "",               "quantity": 1, ... }
+  ]
+}
+```
+
+The instructions injected into OpenAI enforce:
+- query must be 1–3 specific product-type keywords (not descriptive phrases like "gift for mum")
+- at most 2 clarification rounds; never ask when a product type is already clear
+- `OUT_OF_SCOPE` for any non-shopping question
+
+## Execution (executePlan)
+`ShoppingAgentService.executePlan` routes on `intent` and runs each tool call in the plan:
+- **SEARCH_PRODUCTS** — calls `item-service` search or category endpoint
+- **ADD_TO_CART** — resolves a single item then POSTs to `order-service` cart
+- **PLACE_ORDER** — resolves a single item, loads account for address + payment, creates a draft order, then places it (two-step: `POST /orders` then `POST /orders/{number}/place`)
+- **LOOKUP_ORDERS** — loads all customer orders then filters by AI-provided date range or order number
+
+If `needsClarification=true`, execution is short-circuited and the clarification question is returned directly.
+
+## Memory and caching (ShoppingAgentMemoryService)
+| Store | Key | Purpose |
+|---|---|---|
+| `memoryByKey` deque | normalized user message | cache any response (including clarification) so identical messages return instantly with zero API calls |
+| `summaryByKey` string | conversation key | rolling clarification summary injected into the next planning prompt; cleared after each round resolves so one question's context does not bleed into the next |
+| `recentSelectedSku` | conversation key | remembers the last product the user interacted with so follow-ups like "buy that one" resolve without a new search |
+
+## Key files
+- `account-service/.../agent/service/ShoppingAgentService.java` | main pipeline: cache check → planning → execution → memory store 
+- `account-service/.../agent/service/ShoppingAgentMemoryService.java` | in-memory cache, rolling summary, selected-SKU tracking 
+- `account-service/.../agent/dto/ShoppingAgentPlanDto.java` | OpenAI plan JSON schema (intent, toolCalls, needsClarification) 
+- `account-service/.../agent/dto/ShoppingAgentToolCallDto.java` | individual tool call within the plan (tool, query, category, sku, dates, quantity) 
+- `account-service/.../agent/controller/ShoppingAgentController.java` | REST endpoint: `POST /api/v1/shopping/agent/chat` 
+- `frontend/src/components/ShoppingAgentChat.jsx` | chat widget: sends messages, renders product/order cards, handles clarification and selection 
+
+## API contract
+- request: `POST /api/v1/shopping/agent/chat`
+- body: `{ "message": "find me a coffee maker" }` or `{ "selectedAction": "PLACE_ORDER", "selectedSku": "SKU-101", "selectedItemName": "Coffee Maker" }`
+- response fields: same as assistant plus `cartItemCount`, `resolvedQuery`
+
+Direct selection (user clicks a product card button) bypasses OpenAI entirely — the agent resolves the item by SKU and jumps straight to cart or order.
+
+
 # Local Dev Loop
 Use this when you want to run services locally without Docker:
 

@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import { useSession } from '../app/SessionProvider'
 import { api } from '../lib/api'
-import { dateLabel, fulfillmentOf, fullAddress, money, originalPriceFromDiscount } from '../lib/format'
+import { dateLabel, fulfillmentOf, fullAddress, money } from '../lib/format'
 import { orderAction, orderActionLabel } from '../lib/orderRules'
 import { useProductLookupBySku } from '../lib/useProductLookup'
 import { signinUrl } from '../lib/session'
@@ -31,18 +31,7 @@ export function ConfirmationPage() {
   const pickupItems = items.filter((item) => fulfillmentOf(item.itemId) === 'PICKUP')
   const lookupSkus = items.map((item) => item.sku || item.itemId?.split('::')?.[0] || '')
   const productLookup = useProductLookupBySku(lookupSkus)
-  const originalSubtotal = items.reduce((sum, item) => {
-    const lookupSku = item.sku || item.itemId?.split('::')?.[0] || ''
-    const preview = productLookup[lookupSku] || item
-    const current = Number(preview.unitPrice || 0)
-    const percent = Number(preview.discountPercent || 0)
-    const listed = Number(preview.listPrice || 0)
-    const original = listed > current ? listed : (current && percent > 0 ? originalPriceFromDiscount(current, percent) : current)
-    const quantity = Number(item.quantity || 0)
-    return sum + Number(original || 0) * quantity
-  }, 0)
-  const discountedSubtotal = Number(order?.subtotalAmount || items.reduce((sum, item) => sum + Number(item.lineTotal || item.unitPrice * item.quantity), 0))
-  const orderDiscount = Math.max(0, originalSubtotal - discountedSubtotal)
+  const orderDiscount = Number(order?.discountAmount || 0)
   const amountPaid = Number(order?.totalAmount || 0)
   const cancelMutation = useMutation({
     mutationFn: () => {
@@ -129,7 +118,7 @@ export function ConfirmationPage() {
       <div className="order-receipt">
         <p className="order-receipt-title">Order summary</p>
         <div className="order-receipt-rows">
-          <div className="order-receipt-row"><span className="receipt-label">Original price</span><span className="receipt-value">{money(originalSubtotal, order?.currencyCode || 'USD')}</span></div>
+          <div className="order-receipt-row"><span className="receipt-label">Original price</span><span className="receipt-value">{money(order?.subtotalAmount, order?.currencyCode || 'USD')}</span></div>
           {orderDiscount > 0 && <div className="order-receipt-row receipt-discount"><span className="receipt-label">Discount</span><span className="receipt-value">-{money(orderDiscount, order?.currencyCode || 'USD')}</span></div>}
           <div className="order-receipt-row"><span className="receipt-label">Shipping</span><span className="receipt-value">{order?.shippingAmount ? money(order.shippingAmount, order?.currencyCode || 'USD') : 'Free'}</span></div>
           <div className="order-receipt-row receipt-total"><span className="receipt-label">Amount you paid</span><span className="receipt-value">{money(amountPaid, order?.currencyCode || 'USD')}</span></div>

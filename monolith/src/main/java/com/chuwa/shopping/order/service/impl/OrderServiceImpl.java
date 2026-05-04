@@ -146,8 +146,11 @@ public class OrderServiceImpl implements OrderService {
             item.setItemName(catalogItem.getItemName());
             item.setUpc(catalogItem.getUpc());
             item.setUnitPrice(catalogItem.getUnitPrice());
-            if (item.getLineTotal() == null && item.getUnitPrice() != null && item.getQuantity() != null) {
-                item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+            BigDecimal listPrice = catalogItem.getListPrice();
+            BigDecimal unitPrice = defaultMoney(catalogItem.getUnitPrice());
+            BigDecimal originalPrice = (listPrice != null && listPrice.compareTo(unitPrice) > 0) ? listPrice : unitPrice;
+            if (item.getQuantity() != null) {
+                item.setLineTotal(originalPrice.multiply(BigDecimal.valueOf(item.getQuantity())));
             }
         }
         return lineItems;
