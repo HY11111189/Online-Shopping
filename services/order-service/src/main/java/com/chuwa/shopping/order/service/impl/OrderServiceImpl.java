@@ -210,21 +210,23 @@ public class OrderServiceImpl implements OrderService {
         }
 
         if (requestDto.getPaymentStatus() == PaymentStatus.REFUNDED) {
-            OrderStatus nextStatus = requestDto.getOrderStatus() == null ? OrderStatus.REFUNDED : requestDto.getOrderStatus();
             if (order.getStatus() == OrderStatus.PAID) {
                 adjustInventory(order.getOrderNumber(),
                         order.getItems(),
                         "payment-refund-" + requestDto.getPaymentReference(),
                         InventoryAdjustmentType.RESTOCK);
             }
-            order.setStatus(nextStatus);
+            order.setStatus(OrderStatus.REFUNDED);
             order.setStatusReason(requestDto.getStatusReason() == null ? "Payment refunded" : requestDto.getStatusReason());
-            if (nextStatus == OrderStatus.CANCELLED) {
-                order.setCancelledAt(Instant.now());
-            }
         }
 
         if (requestDto.getPaymentStatus() == PaymentStatus.CANCELLED) {
+            if (order.getStatus() != OrderStatus.CANCELLED && order.getStatus() != OrderStatus.REFUNDED) {
+                adjustInventory(order.getOrderNumber(),
+                        order.getItems(),
+                        "payment-cancel-" + requestDto.getPaymentReference(),
+                        InventoryAdjustmentType.RESTOCK);
+            }
             order.setStatus(OrderStatus.CANCELLED);
             order.setStatusReason(requestDto.getStatusReason() == null ? "Payment canceled" : requestDto.getStatusReason());
             order.setCancelledAt(Instant.now());
@@ -268,9 +270,7 @@ public class OrderServiceImpl implements OrderService {
             item.setItemName(catalogItem.getItemName());
             item.setUpc(catalogItem.getUpc());
             item.setUnitPrice(catalogItem.getUnitPrice());
-            // lineTotal stores the original (pre-discount) price × quantity so that
-            // recalculateTotals can correctly compute: subtotal - discountAmount + shipping = amount due.
-            // Using the already-discounted unitPrice here caused the discount to be subtracted twice.
+
             BigDecimal originalPrice = originalUnitPrice(catalogItem);
             if (originalPrice != null && item.getQuantity() != null) {
                 item.setLineTotal(originalPrice.multiply(BigDecimal.valueOf(item.getQuantity())));
