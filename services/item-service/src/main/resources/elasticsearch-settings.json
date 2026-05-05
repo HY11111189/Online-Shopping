@@ -1,0 +1,18 @@
+{
+  "analysis": {
+    "char_filter": {
+      "remove_whitespace": {
+        "type": "pattern_replace",
+        "pattern": "\\s+",
+        "replacement": ""
+      }
+    },
+    "normalizer": {
+      "no_space_normalizer": {
+        "type": "custom",
+        "char_filter": ["remove_whitespace"],
+        "filter": ["lowercase"]
+      }
+    }
+  }
+}

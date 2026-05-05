@@ -15,10 +15,7 @@ import com.chuwa.shopping.client.ItemServiceClient;
 import com.chuwa.shopping.dto.item.ItemDto;
 import com.chuwa.shopping.dto.order.AddressSnapshotDto;
 import com.chuwa.shopping.dto.order.OrderDto;
-import com.chuwa.shopping.dto.order.OrderLineItemDto;
-import com.chuwa.shopping.dto.order.OrderStatus;
 import com.chuwa.shopping.dto.payment.PaymentMethod;
-import com.chuwa.shopping.dto.payment.PaymentStatus;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,7 +42,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -148,6 +144,7 @@ public class ShoppingAgentService {
             CompletableFuture.runAsync(() -> {
                 String updated = generateConversationSummary(currentSummary, userMessage, replySnapshot);
                 memoryService.storeSummary(conversationKey, updated);
+                log.info("rolling summary updated for conversation={}: {}", conversationKey, updated);
             });
         } else {
             // Round fully resolved — clear the summary so it does not bleed into
@@ -185,6 +182,7 @@ public class ShoppingAgentService {
         if ("PLACE_ORDER".equals(action)) {
             return placeOrderDirect(item, resolveQuantityFromSelection(requestDto), authentication);
         }
+
         throw new IllegalStateException("Unsupported agent action: " + requestDto.getSelectedAction());
     }
 
@@ -684,6 +682,7 @@ public class ShoppingAgentService {
             response.setReply("I need your signed-in session to add items to the cart.");
             return response;
         }
+
         addItemToCart(customerId, token, item, 1);
         response.setState("success");
         response.setReply("I added " + item.getItemName() + " to your cart.");

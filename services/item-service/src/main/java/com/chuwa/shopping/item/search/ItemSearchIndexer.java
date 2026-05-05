@@ -75,6 +75,7 @@ public class ItemSearchIndexer {
         search.setSku(dto.getSku());
         search.setUpc(dto.getUpc());
         search.setItemName(dto.getItemName());
+        search.setItemNameNoSpace(dto.getItemName() != null ? dto.getItemName().toLowerCase().replaceAll("\\s+", "") : null);
         search.setBrand(dto.getBrand());
         search.setCategory(dto.getCategory());
         search.setDescription(dto.getDescription());

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { ShoppingAssistantChat } from './ShoppingAssistantChat'
+import { ShoppingAgentChat } from './ShoppingAgentChat'
 import { useQuery } from '@tanstack/react-query'
 import { useSession } from '../app/SessionProvider'
 import { api } from '../lib/api'
@@ -284,6 +286,8 @@ export function Layout() {
       <main className="page-main">
         <Outlet />
       </main>
+      <ShoppingAssistantChat />
+      <ShoppingAgentChat />
     </div>
   )
 }

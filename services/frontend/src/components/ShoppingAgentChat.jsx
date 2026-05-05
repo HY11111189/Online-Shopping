@@ -12,6 +12,37 @@ const quickPrompts = [
   'Show my recent orders',
 ]
 
+const HISTORY_KEY = 'shopping.agent.history'
+const MAX_HISTORY = 15
+
+const DEFAULT_MESSAGES = [
+  {
+    role: 'assistant',
+    text: 'I can browse the full catalog, look up products, add items to your cart, place an order with your saved checkout details, and show your recent orders.',
+    actions: [{ label: 'Browse all products', href: '/index.html' }],
+  },
+]
+
+let _cache = null
+
+function readMessages() {
+  if (_cache) return _cache
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(HISTORY_KEY))
+    if (Array.isArray(saved) && saved.length) {
+      _cache = saved
+      return saved
+    }
+  } catch {}
+  _cache = DEFAULT_MESSAGES
+  return DEFAULT_MESSAGES
+}
+
+function writeMessages(msgs) {
+  _cache = msgs
+  try { sessionStorage.setItem(HISTORY_KEY, JSON.stringify(msgs)) } catch {}
+}
+
 function ChatItemCard({ item, message, onAdd, onChoose }) {
   const chooseMode = message?.state === 'clarification' || message?.state === 'choose_product'
   const buttonLabel = chooseMode
@@ -63,13 +94,7 @@ export function ShoppingAgentChat() {
   const { session } = useSession()
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      text: 'I can browse the full catalog, look up products, add items to your cart, place an order with your saved checkout details, and show your recent orders.',
-      actions: [{ label: 'Browse all products', href: '/index.html' }],
-    },
-  ])
+  const [messages, setMessages] = useState(readMessages)
   const [isSending, setIsSending] = useState(false)
   const [status, setStatus] = useState('')
   const [pendingSelection, setPendingSelection] = useState(null)
@@ -82,6 +107,11 @@ export function ShoppingAgentChat() {
     listRef.current.scrollTop = listRef.current.scrollHeight
   }, [messages, open])
 
+  function update(msgs) {
+    writeMessages(msgs)
+    setMessages(msgs)
+  }
+
   const title = useMemo(() => (open ? 'ShopSmart Agent' : 'Ask ShopSmart Agent'), [open])
 
   async function sendMessage(message) {
@@ -91,33 +121,32 @@ export function ShoppingAgentChat() {
     setStatus('')
     setDraft('')
     setPendingSelection(null)
-    setMessages((current) => [...current, { role: 'user', text }])
+    const withUser = [..._cache || messages, { role: 'user', text }].slice(-MAX_HISTORY)
+    update(withUser)
     setIsSending(true)
     try {
       const response = await api.chatAgentAssistant(signedIn ? session.token : '', { message: text })
-      setMessages((current) => [
-        ...current,
-        {
-          role: 'assistant',
-          text: response.reply || 'I found something useful.',
-          items: response.items || [],
-          orders: response.orders || [],
-          actions: response.actions || [],
-          requiresSignIn: Boolean(response.requiresSignIn),
-          intent: response.intent || '',
-          state: response.state || '',
-          resolvedQuery: response.resolvedQuery || '',
-          orderNumber: response.orderNumber || '',
-          orderStatus: response.orderStatus || '',
-          cartItemCount: response.cartItemCount,
-          checkoutUrl: response.checkoutUrl || '',
-        },
-      ])
+      const withReply = [...withUser, {
+        role: 'assistant',
+        text: response.reply || 'I found something useful.',
+        items: response.items || [],
+        orders: response.orders || [],
+        actions: response.actions || [],
+        requiresSignIn: Boolean(response.requiresSignIn),
+        intent: response.intent || '',
+        state: response.state || '',
+        resolvedQuery: response.resolvedQuery || '',
+        orderNumber: response.orderNumber || '',
+        orderStatus: response.orderStatus || '',
+        cartItemCount: response.cartItemCount,
+        checkoutUrl: response.checkoutUrl || '',
+      }].slice(-MAX_HISTORY)
+      update(withReply)
       if (response.requiresSignIn) {
         setStatus('Sign in to add items to your cart or place an order.')
       }
     } catch (error) {
-      setMessages((current) => [...current, { role: 'assistant', text: error.message || 'The agent could not respond right now.' }])
+      update([...withUser, { role: 'assistant', text: error.message || 'The agent could not respond right now.' }].slice(-MAX_HISTORY))
     } finally {
       setIsSending(false)
     }
@@ -134,9 +163,9 @@ export function ShoppingAgentChat() {
         sku: item.sku,
         quantity: 1,
       })
-      setStatus(`${item.itemName} added to your cart.`)
+      update([..._cache || messages, { role: 'assistant', text: `${item.itemName} has been added to your cart.` }].slice(-MAX_HISTORY))
     } catch (error) {
-      setStatus(error.message || 'Could not add the item to your cart.')
+      update([..._cache || messages, { role: 'assistant', text: error.message || 'Could not add the item to your cart.' }].slice(-MAX_HISTORY))
     }
   }
 
@@ -182,26 +211,23 @@ export function ShoppingAgentChat() {
         selectedSku: item.sku,
         selectedItemName: item.itemName,
       })
-      setMessages((current) => [
-        ...current,
-        {
-          role: 'assistant',
-          text: response.reply || 'I found something useful.',
-          items: response.items || [],
-          orders: response.orders || [],
-          actions: response.actions || [],
-          requiresSignIn: Boolean(response.requiresSignIn),
-          intent: response.intent || '',
-          state: response.state || '',
-          resolvedQuery: response.resolvedQuery || '',
-          orderNumber: response.orderNumber || '',
-          orderStatus: response.orderStatus || '',
-          cartItemCount: response.cartItemCount,
-          checkoutUrl: response.checkoutUrl || '',
-        },
-      ])
+      update([..._cache || messages, {
+        role: 'assistant',
+        text: response.reply || 'I found something useful.',
+        items: response.items || [],
+        orders: response.orders || [],
+        actions: response.actions || [],
+        requiresSignIn: Boolean(response.requiresSignIn),
+        intent: response.intent || '',
+        state: response.state || '',
+        resolvedQuery: response.resolvedQuery || '',
+        orderNumber: response.orderNumber || '',
+        orderStatus: response.orderStatus || '',
+        cartItemCount: response.cartItemCount,
+        checkoutUrl: response.checkoutUrl || '',
+      }].slice(-MAX_HISTORY))
     } catch (error) {
-      setMessages((current) => [...current, { role: 'assistant', text: error.message || 'The agent could not respond right now.' }])
+      update([..._cache || messages, { role: 'assistant', text: error.message || 'The agent could not respond right now.' }].slice(-MAX_HISTORY))
     } finally {
       setIsSending(false)
     }

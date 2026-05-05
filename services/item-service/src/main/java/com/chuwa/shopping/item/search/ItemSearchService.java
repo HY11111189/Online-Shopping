@@ -79,6 +79,12 @@ public class ItemSearchService {
                             .boost(3.0f))
                     .minimumShouldMatch(1);
 
+            // Only for single-word queries: wildcard on itemNameNoSpace so a compound word like
+            // "houseware" matches items stored as "house ware" (indexed with spaces stripped).
+            if (!q.contains(" ")) {
+                textQuery.should(QueryBuilders.wildcardQuery("itemNameNoSpace", "*" + q.toLowerCase() + "*").boost(6.0f));
+            }
+
             // function_score: boost in-stock and discounted items without zeroing out others
             // boostMode=SUM adds function bonuses on top of query score rather than multiplying
             FunctionScoreQueryBuilder.FilterFunctionBuilder[] functions = {

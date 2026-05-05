@@ -16,10 +16,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Versioned to v5 so analyzer changes can be created fresh on first start.
- * Run `DELETE /shopping-items-v4` in Kibana / curl if you need to force a remap.
+ * Versioned to v7 — adds itemNameNoSpace for compound-word search (e.g. "houseware" ↔ "house ware").
+ * Run `DELETE /shopping-items-v6` in Kibana / curl to drop the old index.
  */
-@Document(indexName = "shopping-items-v5")
+@Document(indexName = "shopping-items-v7")
 public class ItemSearchDocument {
 
     @Id
@@ -33,9 +33,9 @@ public class ItemSearchDocument {
 
     /**
      * Multi-field itemName:
-     *  - itemName          → standard Text, for full-text search
-     *  - itemName.keyword  → Keyword, for exact/sort
-     *  - itemName.suggest  → Search_As_You_Type, powers prefix/ngram auto-complete
+     *  - itemName         → standard Text, for full-text search
+     *  - itemName.keyword → Keyword, for exact/sort
+     *  - itemName.suggest → Search_As_You_Type, powers prefix/ngram auto-complete
      */
     @MultiField(
         mainField  = @Field(type = FieldType.Text, analyzer = "english"),
@@ -45,6 +45,11 @@ public class ItemSearchDocument {
         }
     )
     private String itemName;
+
+    /** itemName lowercased with all spaces removed, e.g. "House Ware" → "houseware".
+     *  Used for compound-word wildcard matching so "houseware" finds "house ware" and vice versa. */
+    @Field(type = FieldType.Keyword)
+    private String itemNameNoSpace;
 
     /**
      * Multi-field brand:
@@ -113,6 +118,9 @@ public class ItemSearchDocument {
 
     public String getItemName() { return itemName; }
     public void setItemName(String itemName) { this.itemName = itemName; }
+
+    public String getItemNameNoSpace() { return itemNameNoSpace; }
+    public void setItemNameNoSpace(String itemNameNoSpace) { this.itemNameNoSpace = itemNameNoSpace; }
 
     public String getBrand() { return brand; }
     public void setBrand(String brand) { this.brand = brand; }
