@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useSession } from '../app/SessionProvider'
 import { api } from '../lib/api'
 import { money, originalPriceFromDiscount } from '../lib/format'
@@ -30,14 +30,7 @@ export function ProductPage() {
     queryFn: () => api.getItemBySku(sku),
     staleTime: 120_000,
   })
-  const cartQuery = useQuery({
-    queryKey: ['cart', session.customerId],
-    queryFn: () => api.getCart(session.token, session.customerId),
-    enabled: Boolean(session.token && session.customerId),
-  })
-
   const item = productQuery.data
-  const cartUnits = (cartQuery.data?.items || []).reduce((sum, line) => sum + Number(line.quantity || 0), 0)
   const originalPrice = originalPriceFromDiscount(item?.unitPrice, item?.discountPercent)
 
   async function addToCart() {
@@ -167,12 +160,6 @@ export function ProductPage() {
               <strong id="product-fulfillment-title">{fulfillment === 'pickup' ? 'Pickup' : 'Shipping'}</strong>
               <span id="product-fulfillment-detail">{fulfillment === 'pickup' ? pickupText : 'Ships to your saved address at checkout.'}</span>
             </div>
-            <Link className="buy-box-cart-row" to="/cart.html" id="product-view-cart">
-              <span className="buy-box-cart-copy">
-                <strong>{cartUnits ? `In your cart ${cartUnits} item${cartUnits === 1 ? '' : 's'}` : 'Review cart'}</strong>
-              </span>
-              <span className="secondary-button">View cart</span>
-            </Link>
             <div className="buy-box-returns">
               <strong>Returns</strong>
               <span>Free 90-day returns on most items</span>

@@ -1,5 +1,6 @@
 package com.chuwa.shopping.item.service.impl;
 
+import com.chuwa.shopping.dto.PageResponse;
 import com.chuwa.shopping.dto.item.InventoryAdjustmentRequestDto;
 import com.chuwa.shopping.dto.item.InventoryAdjustmentResultDto;
 import com.chuwa.shopping.dto.item.InventoryAdjustmentType;
@@ -15,6 +16,9 @@ import com.chuwa.shopping.item.search.ItemSearchIndexer;
 import com.chuwa.shopping.item.search.ItemSearchService;
 import com.chuwa.shopping.item.service.ItemService;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
@@ -116,6 +120,43 @@ public class ItemServiceImpl implements ItemService {
                 .collect(Collectors.collectingAndThen(Collectors.toList(), items -> items.stream()
                         .limit(cappedLimit)
                         .collect(Collectors.toList())));
+    }
+
+    @Override
+    public PageResponse<ItemDto> getItemsByCategoryPage(String category, int page, int size) {
+        int cappedSize = Math.max(1, Math.min(size, 60));
+        int cappedPage = Math.max(0, page);
+        Page<ItemDocument> result = itemRepository.findByCategoryIgnoreCase(
+                category == null ? "" : category.trim(),
+                PageRequest.of(cappedPage, cappedSize, Sort.by(Sort.Direction.ASC, "itemName")));
+        List<ItemDto> content = result.getContent().stream()
+                .map(itemMapper::toItemDto)
+                .collect(Collectors.toList());
+        return new PageResponse<>(content, cappedPage, cappedSize, result.getTotalElements());
+    }
+
+    @Override
+    public PageResponse<ItemDto> getAllItemsPage(int page, int size) {
+        int cappedSize = Math.max(1, Math.min(size, 60));
+        int cappedPage = Math.max(0, page);
+        Page<ItemDocument> result = itemRepository.findAll(
+                PageRequest.of(cappedPage, cappedSize, Sort.by(Sort.Direction.ASC, "itemName")));
+        List<ItemDto> content = result.getContent().stream()
+                .map(itemMapper::toItemDto)
+                .filter(item -> item.getSku() != null)
+                .collect(Collectors.toList());
+        return new PageResponse<>(content, cappedPage, cappedSize, result.getTotalElements());
+    }
+
+    @Override
+    public PageResponse<ItemDto> searchItemsPage(String query, String category, String brand, Boolean inStock, int page, int size) {
+        if (query == null || query.isBlank()) {
+            return getAllItemsPage(page, size);
+        }
+        if (itemSearchService == null) {
+            throw new IllegalStateException("Elasticsearch search is not available");
+        }
+        return itemSearchService.searchPage(query, inStock, page, size);
     }
 
     @Override

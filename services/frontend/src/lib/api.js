@@ -28,16 +28,25 @@ export const api = {
   signup: (payload) => apiRequest('/api/v1/auth/signup', { method: 'POST', body: payload }),
   getMe: (token) => apiRequest('/api/v1/shopping/accounts/me', { token }),
   updateAccount: (token, accountId, payload) => apiRequest(`/api/v1/shopping/accounts/${encodeURIComponent(accountId)}`, { token, method: 'PUT', body: payload }),
-  getItems: () => apiRequest('/api/v1/shopping/items'),
+  getItems: ({ page, size = 24 } = {}) => {
+    const params = new URLSearchParams()
+    if (page != null) { params.set('page', String(page)); params.set('size', String(size)) }
+    const qs = params.toString()
+    return apiRequest(`/api/v1/shopping/items${qs ? `?${qs}` : ''}`)
+  },
   getCategories: () => apiRequest('/api/v1/shopping/items/categories'),
-  searchItems: ({ q, limit = 24 }) => {
+  searchItems: ({ q, limit = 24, page, size = 24 }) => {
     const params = new URLSearchParams()
     if (q) params.set('q', q)
-    if (limit) params.set('limit', String(limit))
+    if (page != null) { params.set('page', String(page)); params.set('size', String(size)) }
+    else if (limit) params.set('limit', String(limit))
     return apiRequest(`/api/v1/shopping/items/search?${params.toString()}`)
   },
-  getItemsByCategory: (category, limit = 48) => {
-    return apiRequest(`/api/v1/shopping/items/category/${encodeURIComponent(category)}?limit=${encodeURIComponent(String(limit))}`)
+  getItemsByCategory: (category, { limit = 48, page, size = 24 } = {}) => {
+    const params = new URLSearchParams()
+    if (page != null) { params.set('page', String(page)); params.set('size', String(size)) }
+    else params.set('limit', String(limit))
+    return apiRequest(`/api/v1/shopping/items/category/${encodeURIComponent(category)}?${params.toString()}`)
   },
   getItemBySku: (sku) => apiRequest(`/api/v1/shopping/items/sku/${encodeURIComponent(sku)}`),
   getCart: (token, customerId) => apiRequest(`/api/v1/shopping/carts/${customerId}`, { token }),

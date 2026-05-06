@@ -1,5 +1,6 @@
 package com.chuwa.shopping.item.search;
 
+import com.chuwa.shopping.dto.PageResponse;
 import com.chuwa.shopping.dto.item.ItemDto;
 import com.chuwa.shopping.dto.item.InventoryDto;
 import org.elasticsearch.common.lucene.search.function.CombineFunction;
@@ -36,7 +37,46 @@ public class ItemSearchService {
         this.elasticsearchOperations = elasticsearchOperations;
     }
 
+    public PageResponse<ItemDto> searchPage(String query, Boolean inStock, int page, int size) {
+        int cappedSize = Math.max(1, Math.min(size, 60));
+        int cappedPage = Math.max(0, page);
+        BoolQueryBuilder outerBool = buildQuery(query, inStock);
+
+        NativeSearchQuery countQuery = new NativeSearchQueryBuilder()
+                .withQuery(outerBool)
+                .withPageable(PageRequest.of(0, 1))
+                .build();
+        long totalHits = elasticsearchOperations.search(countQuery, ItemSearchDocument.class).getTotalHits();
+
+        NativeSearchQuery searchQuery = new NativeSearchQueryBuilder()
+                .withQuery(outerBool)
+                .withPageable(PageRequest.of(cappedPage, cappedSize))
+                .build();
+        SearchHits<ItemSearchDocument> hits = elasticsearchOperations.search(searchQuery, ItemSearchDocument.class);
+        List<ItemDto> content = hits.stream()
+                .map(SearchHit::getContent)
+                .map(this::toItemDto)
+                .collect(Collectors.toList());
+        return new PageResponse<>(content, cappedPage, cappedSize, totalHits);
+    }
+
     public List<ItemDto> search(String query, Boolean inStock, int limit) {
+        BoolQueryBuilder outerBool = buildQuery(query, inStock);
+
+        NativeSearchQuery searchQuery = new NativeSearchQueryBuilder()
+                .withQuery(outerBool)
+                .withPageable(PageRequest.of(0, Math.max(1, Math.min(limit * 2, 60))))
+                .build();
+
+        SearchHits<ItemSearchDocument> hits = elasticsearchOperations.search(searchQuery, ItemSearchDocument.class);
+        List<ItemDto> results = hits.stream()
+                .map(SearchHit::getContent)
+                .map(this::toItemDto)
+                .collect(Collectors.toList());
+        return dedupeAndLimit(results, limit);
+    }
+
+    private BoolQueryBuilder buildQuery(String query, Boolean inStock) {
         BoolQueryBuilder outerBool = QueryBuilders.boolQuery();
 
         if (query != null && !query.isBlank()) {
@@ -110,17 +150,7 @@ public class ItemSearchService {
             outerBool.filter(QueryBuilders.termQuery("inStock", inStock));
         }
 
-        NativeSearchQuery searchQuery = new NativeSearchQueryBuilder()
-                .withQuery(outerBool)
-                .withPageable(PageRequest.of(0, Math.max(1, Math.min(limit * 2, 60))))
-                .build();
-
-        SearchHits<ItemSearchDocument> hits = elasticsearchOperations.search(searchQuery, ItemSearchDocument.class);
-        List<ItemDto> results = hits.stream()
-                .map(SearchHit::getContent)
-                .map(this::toItemDto)
-                .collect(Collectors.toList());
-        return dedupeAndLimit(results, limit);
+        return outerBool;
     }
 
     private ItemDto toItemDto(ItemSearchDocument doc) {

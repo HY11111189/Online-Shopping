@@ -1,5 +1,6 @@
 package com.chuwa.shopping.item.controller;
 
+import com.chuwa.shopping.dto.PageResponse;
 import com.chuwa.shopping.dto.item.InventoryDto;
 import com.chuwa.shopping.dto.item.ItemDto;
 import com.chuwa.shopping.item.service.ItemService;
@@ -35,7 +36,12 @@ public class ItemController {
     }
 
     @GetMapping
-    public ResponseEntity<List<ItemDto>> getItems() {
+    public ResponseEntity<?> getItems(
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "size", defaultValue = "24") int size) {
+        if (page != null) {
+            return ResponseEntity.ok(itemService.getAllItemsPage(page, size));
+        }
         return ResponseEntity.ok(itemService.getAllItems());
     }
 
@@ -45,17 +51,27 @@ public class ItemController {
     }
 
     @GetMapping("/category/{category}")
-    public ResponseEntity<List<ItemDto>> getItemsByCategory(@PathVariable String category,
-                                                            @RequestParam(value = "limit", defaultValue = "48") int limit) {
+    public ResponseEntity<?> getItemsByCategory(@PathVariable String category,
+                                                @RequestParam(value = "page", required = false) Integer page,
+                                                @RequestParam(value = "size", defaultValue = "24") int size,
+                                                @RequestParam(value = "limit", defaultValue = "48") int limit) {
+        if (page != null) {
+            return ResponseEntity.ok(itemService.getItemsByCategoryPage(category, page, size));
+        }
         return ResponseEntity.ok(itemService.getItemsByCategory(category, limit));
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<ItemDto>> searchItems(@RequestParam(value = "q", required = false) String query,
-                                                     @RequestParam(value = "category", required = false) String category,
-                                                     @RequestParam(value = "brand", required = false) String brand,
-                                                     @RequestParam(value = "inStock", required = false) Boolean inStock,
-                                                     @RequestParam(value = "limit", defaultValue = "24") int limit) {
+    public ResponseEntity<?> searchItems(@RequestParam(value = "q", required = false) String query,
+                                         @RequestParam(value = "category", required = false) String category,
+                                         @RequestParam(value = "brand", required = false) String brand,
+                                         @RequestParam(value = "inStock", required = false) Boolean inStock,
+                                         @RequestParam(value = "page", required = false) Integer page,
+                                         @RequestParam(value = "size", defaultValue = "24") int size,
+                                         @RequestParam(value = "limit", defaultValue = "24") int limit) {
+        if (page != null) {
+            return ResponseEntity.ok(itemService.searchItemsPage(query, category, brand, inStock, page, size));
+        }
         return ResponseEntity.ok(itemService.searchItems(query, category, brand, inStock, limit));
     }
 

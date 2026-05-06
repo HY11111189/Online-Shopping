@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useSession } from '../app/SessionProvider'
@@ -8,6 +8,7 @@ import { money, originalPriceFromDiscount } from '../lib/format'
 import { isSessionActive } from '../lib/session'
 import { loadWishlist, saveWishlist } from '../lib/wishlist'
 import { signinUrl } from '../lib/session'
+import { Pagination } from '../components/Pagination'
 
 function CatalogTile({ addedToCart, addToCart, addedToWishlist, item, saved, toggleWishlist, dealLabel = '' }) {
   const originalPrice = originalPriceFromDiscount(item.unitPrice, item.discountPercent)
@@ -47,6 +48,8 @@ function CatalogTile({ addedToCart, addToCart, addedToWishlist, item, saved, tog
   )
 }
 
+const PAGE_SIZE = 24
+
 export function HomePage() {
   const { session } = useSession()
   const location = useLocation()
@@ -55,9 +58,18 @@ export function HomePage() {
   const [wishlist, setWishlist] = useState(() => loadWishlist())
   const [addedCartSkus, setAddedCartSkus] = useState({})
   const [addedWishlistSkus, setAddedWishlistSkus] = useState({})
+  const [page, setPage] = useState(0)
   const searchParams = new URLSearchParams(location.search)
   const q = searchParams.get('q') || ''
   const category = searchParams.get('category') || ''
+
+  useEffect(() => { setPage(0) }, [q, category])
+
+  function handlePageChange(newPage) {
+    setPage(newPage)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   const categoriesQuery = useQuery({
     queryKey: ['categories'],
     queryFn: () => api.getCategories(),
@@ -65,23 +77,27 @@ export function HomePage() {
   })
 
   const itemsQuery = useQuery({
-    queryKey: category ? ['catalog-category', category] : q ? ['catalog-search', q] : ['catalog-home'],
+    queryKey: category ? ['catalog-category', category, page] : q ? ['catalog-search', q, page] : ['catalog-home'],
     queryFn: () => {
-      if (category) return api.getItemsByCategory(category, 48)
-      if (q) return api.searchItems({ q, limit: 36 })
-      return api.getItems()
+      if (category) return api.getItemsByCategory(category, { page, size: PAGE_SIZE })
+      if (q) return api.searchItems({ q, page, size: PAGE_SIZE })
+      return api.getItems({ page: 0, size: 60 })
     },
     staleTime: 60_000,
+    keepPreviousData: true,
   })
 
+  const pagedMode = Boolean(q || category)
+  const pageData = pagedMode ? itemsQuery.data : null
   const items = useMemo(() => {
+    const raw = itemsQuery.data?.content || []
     const seen = new Set()
-    return (itemsQuery.data || []).filter((item) => {
+    return raw.filter((item) => {
       if (!item?.sku || seen.has(item.sku)) return false
       seen.add(item.sku)
       return true
     })
-  }, [itemsQuery.data])
+  }, [itemsQuery.data, pagedMode, pageData])
 
   const featured = items.slice(0, 8)
   const deals = [...items]
@@ -89,7 +105,8 @@ export function HomePage() {
     .sort((a, b) => Number(b.discountPercent || 0) - Number(a.discountPercent || 0))
     .slice(0, 4)
   const searchMode = Boolean(q)
-  const visibleItems = (searchMode || category) ? items : featured
+  const visibleItems = pagedMode ? items : featured
+  const totalPages = pageData?.totalPages || 0
   const categoryList = normalizeCategories(categoriesQuery.data || [])
 
   async function addToCart(item, event) {
@@ -168,7 +185,11 @@ export function HomePage() {
             {!searchMode && !category ? <p className="helper">Top items across grocery, electronics, home, and more.</p> : null}
           </div>
           <div className="muted" id="home-catalog-meta">
-            {itemsQuery.isLoading ? 'Loading…' : searchMode || category ? `${items.length} results` : ''}
+            {itemsQuery.isLoading
+              ? 'Loading…'
+              : pagedMode && pageData?.totalElements != null
+              ? `${pageData.totalElements} result${pageData.totalElements !== 1 ? 's' : ''}`
+              : ''}
           </div>
         </div>
         {itemsQuery.isError ? (
@@ -195,6 +216,7 @@ export function HomePage() {
             />
           ))}
         </div>
+        {pagedMode ? <Pagination page={page} totalPages={totalPages} onPageChange={handlePageChange} /> : null}
       </section>
 
       {/* Deals — only on home page */}
