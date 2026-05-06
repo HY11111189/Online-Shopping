@@ -61,7 +61,7 @@ import java.util.stream.Collectors;
  * High-level flow:
  * 1. If the user clicked a product card, skip OpenAI and handle it directly.
  * 2. Check the in-memory cache; return the cached reply if the message was seen recently.
- * 3. Call OpenAI (classifyPlan) to get a ShoppingAgentPlanDto with an ordered toolCalls list.
+ * 3. Call OpenAI (classifyPlan) to get a ShoppingAgentPlanDto with an ordered planInputs list.
  * 4. Execute the plan (executePlan): run SEARCH_PRODUCTS, then PLACE_ORDER / ADD_TO_CART / LOOKUP_ORDERS.
  * 5. Store the result in memory so the next identical message gets an instant reply.
  */
@@ -189,7 +189,7 @@ public class ShoppingAgentService {
     private ShoppingAgentPlanDto classifyPlan(String userMessage, Authentication authentication, String conversationKey) {
         // Unlike the assistant (which asks OpenAI for a flat classification),
         // the agent asks OpenAI to produce a full plan: an intent + an ordered list of
-        // toolCalls the backend should execute (e.g. SEARCH_PRODUCTS then PLACE_ORDER).
+        // planInputs the backend should read from (e.g. SEARCH_PRODUCTS then PLACE_ORDER).
         // We use a strict JSON schema so the response is always machine-parseable.
         if (openAiApiKey == null || openAiApiKey.isBlank()) {
             throw new IllegalStateException("OPENAI_API_KEY is not configured for the shopping agent");
@@ -220,9 +220,9 @@ public class ShoppingAgentService {
         properties.putObject("clarificationQuestion").put("type", "string");
         properties.putObject("needsClarification").put("type", "boolean");
 
-        ObjectNode toolCalls = properties.putObject("toolCalls");
-        toolCalls.put("type", "array");
-        ObjectNode toolCallSchema = toolCalls.putObject("items");
+        ObjectNode planInputs = properties.putObject("planInputs");
+        planInputs.put("type", "array");
+        ObjectNode toolCallSchema = planInputs.putObject("items");
         toolCallSchema.put("type", "object");
         ObjectNode toolProps = toolCallSchema.putObject("properties");
         toolProps.putObject("tool").put("type", "string").putArray("enum")
@@ -257,7 +257,7 @@ public class ShoppingAgentService {
                 .add("reply")
                 .add("clarificationQuestion")
                 .add("needsClarification")
-                .add("toolCalls");
+                .add("planInputs");
         schema.put("additionalProperties", false);
 
         try {
@@ -510,7 +510,6 @@ public class ShoppingAgentService {
         response.setReply("I added " + resolveQuantityFromPlan(plan) + " x " + item.getItemName() + " to your cart.");
         response.getItems().add(toAssistantItem(item));
         response.getActions().add(action("Go to cart", "/cart.html", "navigate"));
-        response.getActions().add(action("Checkout", "/checkout.html", "navigate"));
         return response;
     }
 
@@ -787,10 +786,10 @@ public class ShoppingAgentService {
     }
 
     private ShoppingAgentToolCallDto firstToolCall(ShoppingAgentPlanDto plan, String tool) {
-        if (plan == null || plan.getToolCalls() == null) {
+        if (plan == null || plan.getPlanInputs() == null) {
             return null;
         }
-        return plan.getToolCalls().stream()
+        return plan.getPlanInputs().stream()
                 .filter(call -> tool.equalsIgnoreCase(call.getTool()))
                 .findFirst()
                 .orElse(null);

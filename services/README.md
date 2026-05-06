@@ -394,7 +394,7 @@ User message
     ▼ miss
 2. OpenAI planning (classifyPlan)
    └─ sends message + rolling clarification summary to OpenAI Responses API
-   └─ receives ShoppingAgentPlanDto: intent + ordered toolCalls list + needsClarification flag
+   └─ receives ShoppingAgentPlanDto: intent + ordered planInputs list + needsClarification flag
     │
     ▼
 3. Plan execution (executePlan)
@@ -421,30 +421,31 @@ forcing the model to return a machine-parseable `ShoppingAgentPlanDto`:
 
 ```json
 {
- 
+  "intent": "PLACE_ORDER",
   "reply": "Placing order now.",
   "clarificationQuestion": "",
   "needsClarification": false,
-  "toolCalls": [
-    { "tool": "SEARCH_PRODUCTS", "query": "coffee maker", "category": "", "quantity": 1, ... },
-    { "tool": "PLACE_ORDER",     "sku": "",               "quantity": 1, ... }
+  "planInputs": [
+    { "tool": "SEARCH_PRODUCTS", "query": "coffee maker", "category": "", "quantity": 1 },
+    { "tool": "PLACE_ORDER",     "sku": "",               "quantity": 1 }
   ]
 }
 ```
 
-The instructions injected into OpenAI enforce:
-- query must be 1–3 specific product-type keywords (not descriptive phrases like "gift for mum")
-- at most 2 clarification rounds; never ask when a product type is already clear
-- `OUT_OF_SCOPE` for any non-shopping question
-
 ## Execution (executePlan)
-`ShoppingAgentService.executePlan` routes on `intent` and runs each tool call in the plan:
-- **SEARCH_PRODUCTS** — calls `item-service` search or category endpoint
-- **ADD_TO_CART** — resolves a single item then POSTs to `order-service` cart
-- **PLACE_ORDER** — resolves a single item, loads account for address + payment, creates a draft order, then places it (two-step: `POST /orders` then `POST /orders/{number}/place`)
-- **LOOKUP_ORDERS** — loads all customer orders then filters by AI-provided date range or order number
+`ShoppingAgentService.executePlan` switches on the top-level `intent` field to call the appropriate handler.
+`planInputs` is a read-only parameter bag — the handler extracts whichever entries it needs (query, sku, quantity, etc.) and never iterates the array as a task sequence.
 
-If `needsClarification=true`, execution is short-circuited and the clarification question is returned directly.
+| `intent` | handler | what it does |
+|---|---|---|
+| `SEARCH_PRODUCTS` | `runSearchPlan` | reads `planInputs[SEARCH_PRODUCTS].query/category`, calls item-service, returns product cards |
+| `ADD_TO_CART` | `runAddToCartPlan` | reads `planInputs[SEARCH_PRODUCTS]` to resolve a single item, POSTs to order-service cart |
+| `PLACE_ORDER` | `runPlaceOrderPlan` | reads `planInputs[SEARCH_PRODUCTS]` to find the item + `planInputs[PLACE_ORDER].sku/quantity`; loads account address and payment method; creates then places the order (`POST /orders` → `POST /orders/{number}/place`) |
+| `LOOKUP_ORDERS` | `runOrderLookupPlan` | reads `planInputs[LOOKUP_ORDERS].orderNumber/startDate/endDate`, loads customer orders from order-service and filters |
+| `GENERAL_HELP` | `generalHelp` | returns a browse prompt with sample products |
+| `OUT_OF_SCOPE` | `outOfScope` | politely declines non-shopping questions |
+
+If `needsClarification=true`, execution is short-circuited before any handler runs and the clarification question is returned directly.
 
 ## Memory and caching (ShoppingAgentMemoryService)
 | Store | Key | Purpose |
@@ -456,7 +457,7 @@ If `needsClarification=true`, execution is short-circuited and the clarification
 ## Key files
 - `account-service/.../agent/service/ShoppingAgentService.java` | main pipeline: cache check → planning → execution → memory store 
 - `account-service/.../agent/service/ShoppingAgentMemoryService.java` | in-memory cache, rolling summary, selected-SKU tracking 
-- `account-service/.../agent/dto/ShoppingAgentPlanDto.java` | OpenAI plan JSON schema (intent, toolCalls, needsClarification) 
+- `account-service/.../agent/dto/ShoppingAgentPlanDto.java` | OpenAI plan JSON schema (intent, planInputs, needsClarification) 
 - `account-service/.../agent/dto/ShoppingAgentToolCallDto.java` | individual tool call within the plan (tool, query, category, sku, dates, quantity) 
 - `account-service/.../agent/controller/ShoppingAgentController.java` | REST endpoint: `POST /api/v1/shopping/agent/chat` 
 - `frontend/src/components/ShoppingAgentChat.jsx` | chat widget: sends messages, renders product/order cards, handles clarification and selection 

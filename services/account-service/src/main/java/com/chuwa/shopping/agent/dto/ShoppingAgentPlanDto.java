@@ -9,7 +9,7 @@ public class ShoppingAgentPlanDto {
     private String reply;
     private String clarificationQuestion;
     private boolean needsClarification;
-    private List<ShoppingAgentToolCallDto> toolCalls = new ArrayList<>();
+    private List<ShoppingAgentToolCallDto> planInputs = new ArrayList<>();
 
     public String getIntent() {
         return intent;
@@ -43,11 +43,11 @@ public class ShoppingAgentPlanDto {
         this.needsClarification = needsClarification;
     }
 
-    public List<ShoppingAgentToolCallDto> getToolCalls() {
-        return toolCalls;
+    public List<ShoppingAgentToolCallDto> getPlanInputs() {
+        return planInputs;
     }
 
-    public void setToolCalls(List<ShoppingAgentToolCallDto> toolCalls) {
-        this.toolCalls = toolCalls;
+    public void setPlanInputs(List<ShoppingAgentToolCallDto> planInputs) {
+        this.planInputs = planInputs;
     }
 }
