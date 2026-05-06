@@ -467,8 +467,6 @@ If `needsClarification=true`, execution is short-circuited before any handler ru
 - body: `{ "message": "find me a coffee maker" }` or `{ "selectedAction": "PLACE_ORDER", "selectedSku": "SKU-101", "selectedItemName": "Coffee Maker" }`
 - response fields: same as assistant plus `cartItemCount`, `resolvedQuery`
 
-Direct selection (user clicks a product card button) bypasses OpenAI entirely — the agent resolves the item by SKU and jumps straight to cart or order.
-
 
 # Local Dev Loop
 Use this when you want to run services locally without Docker:
