@@ -216,8 +216,12 @@ public class OrderServiceImpl implements OrderService {
                         "payment-refund-" + requestDto.getPaymentReference(),
                         InventoryAdjustmentType.RESTOCK);
             }
-            order.setStatus(OrderStatus.REFUNDED);
+            OrderStatus targetStatus = requestDto.getOrderStatus() != null ? requestDto.getOrderStatus() : OrderStatus.REFUNDED;
+            order.setStatus(targetStatus);
             order.setStatusReason(requestDto.getStatusReason() == null ? "Payment refunded" : requestDto.getStatusReason());
+            if (targetStatus == OrderStatus.CANCELLED) {
+                order.setCancelledAt(Instant.now());
+            }
         }
 
         if (requestDto.getPaymentStatus() == PaymentStatus.CANCELLED) {
